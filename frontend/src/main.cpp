@@ -3,7 +3,7 @@
 //
 // Usage:  snes_frontend <rom_file.smc>
 //
-// SDL init → load ROM → run StepFrame() per vsync → event pump → quit.
+// SDL init → load ROM → pace StepFrame() from audio demand → event pump → quit.
 // ============================================================================
 
 #include "SdlVideoOutput.hpp"
@@ -37,6 +37,9 @@ int main(int argc, char* argv[]) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return EXIT_FAILURE;
     }
+    struct SdlLifetime {
+        ~SdlLifetime() { SDL_Quit(); }
+    } sdlLifetime;
 
     // ------------------------------------------------------------------
     // 3. Create SDL platform objects
@@ -46,12 +49,14 @@ int main(int argc, char* argv[]) {
     std::unique_ptr<snes::frontend::SdlInputProvider> input;
 
     try {
-        video = std::make_unique<snes::frontend::SdlVideoOutput>();
+        snes::frontend::SdlVideoOutput::Config videoConfig;
+        // Audio consumption sets emulation speed, independent of monitor refresh.
+        videoConfig.vsync = false;
+        video = std::make_unique<snes::frontend::SdlVideoOutput>(videoConfig);
         audio = std::make_unique<snes::frontend::SdlAudioOutput>();
         input = std::make_unique<snes::frontend::SdlInputProvider>();
     } catch (const std::exception& e) {
         std::cerr << "Failed to create SDL subsystem: " << e.what() << '\n';
-        SDL_Quit();
         return EXIT_FAILURE;
     }
 
@@ -67,7 +72,6 @@ int main(int argc, char* argv[]) {
     std::string loadError;
     if (!emulator->LoadCartridgeFromFile(romPath, &loadError)) {
         std::cerr << "Failed to load ROM: " << loadError << '\n';
-        SDL_Quit();
         return EXIT_FAILURE;
     }
 
@@ -80,69 +84,55 @@ int main(int argc, char* argv[]) {
     }
 
     // ------------------------------------------------------------------
-    // 5. Un-pause audio and enter main loop
+    // 5. Prime audio and enter main loop
     // ------------------------------------------------------------------
-    audio->Resume();
-
-    // Explicit frame pacing for NTSC (~59.94 Hz) prevents the emulation loop
-    // from outrunning real-time audio on systems where VSync is unavailable.
-    constexpr uint64_t kFrameNs = (1000000000ull * 1001ull) / 60000ull;
-    uint64_t nextFrameTime = SDL_GetTicksNS();
-
-    bool running = true;
-    while (running) {
-        // --- Event pump (also updates keyboard state for SdlInputProvider) ---
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            switch (event.type) {
-                case SDL_EVENT_QUIT:
-                    running = false;
-                    break;
-                case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                    running = false;
-                    break;
-                case SDL_EVENT_KEY_DOWN:
-                    // Escape quits
-                    if (event.key.scancode == SDL_SCANCODE_ESCAPE)
+    try {
+        audio->Resume();
+        bool running = true;
+        while (running) {
+            // --- Event pump (also updates keyboard state for SdlInputProvider) ---
+            SDL_Event event;
+            while (SDL_PollEvent(&event)) {
+                switch (event.type) {
+                    case SDL_EVENT_QUIT:
                         running = false;
-                    break;
-                default:
-                    break;
+                        break;
+                    case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
+                        running = false;
+                        break;
+                    case SDL_EVENT_KEY_DOWN:
+                        // Escape quits
+                        if (event.key.scancode == SDL_SCANCODE_ESCAPE)
+                            running = false;
+                        break;
+                    default:
+                        break;
+                }
             }
-        }
 
-        if (!running) break;
+            if (!running) break;
 
-        // --- Run one emulated frame ---
-        emulator->StepFrame();
-
-        // Pace to real time to keep audio queue stable.
-        nextFrameTime += kFrameNs;
-        uint64_t now = SDL_GetTicksNS();
-        if (now + (kFrameNs * 4) < nextFrameTime) {
-            // Large clock jump/system sleep: resync pacing anchor.
-            nextFrameTime = now;
-        } else if (now < nextFrameTime) {
-            const uint64_t remainingNs = nextFrameTime - now;
-            const uint32_t delayMs = static_cast<uint32_t>(remainingNs / 1000000ull);
-            if (delayMs > 0) {
-                SDL_Delay(delayMs);
+            // Wait for the device to consume input instead of dropping samples.
+            // Keep polling events during the wait so the window stays responsive.
+            if (!audio->NeedsSamples()) {
+                SDL_Delay(1);
+                continue;
             }
-        } else if (now - nextFrameTime > kFrameNs) {
-            // Running behind: avoid accumulating lag.
-            nextFrameTime = now;
+            emulator->StepFrame();
         }
+        audio->Pause();
+    } catch (const std::exception& e) {
+        std::cerr << "Playback failed: " << e.what() << '\n';
+        return EXIT_FAILURE;
     }
 
     // ------------------------------------------------------------------
     // 6. Cleanup (order matters: destroy SDL objects before SDL_Quit)
     // ------------------------------------------------------------------
-    audio->Pause();
     emulator.reset();
     input.reset();
     audio.reset();
     video.reset();
-    SDL_Quit();
 
     return EXIT_SUCCESS;
 }

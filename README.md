@@ -16,4 +16,5 @@ Run a game on Windows:
 .\out\build\release\frontend\snes_frontend.exe "C:\path\to\game.sfc"
 ```
 
-[Rendering and LoROM checks](docs/accuracy-notes.md) describes the fixes checked against Snes9x and their regression tests.
+[Audio playback](docs/audio.md) explains buffering, frame pacing and audio regression tests.
+[Rendering and LoROM checks](docs/accuracy-notes.md) covers coordinate handling, ROM mapping and their regression tests.

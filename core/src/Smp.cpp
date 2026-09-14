@@ -178,12 +178,9 @@ void Smp::tickDsp() {
 // ============================================================================
 
 void Smp::RunUntil(uint64_t targetCycles) {
-    while (cycles_ < targetCycles && !r.wait && !r.stop) {
+    // Step idles a halted CPU, keeping the timers and DSP on the same clock.
+    while (cycles_ < targetCycles) {
         Step();
-    }
-    // If halted but target not reached, advance cycle count to target
-    if (cycles_ < targetCycles) {
-        cycles_ = targetCycles;
     }
 }
 

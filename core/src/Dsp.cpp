@@ -3,7 +3,7 @@
 //
 // Implements the complete SNES audio DSP in "fast" (batch) mode:
 // all 8 voices processed per sample, then echo, then mix.
-// Produces output identical to bsnes's 32-phase pipeline.
+// Register writes take effect at sample boundaries.
 //
 // Reference: bsnes sfc/dsp/SPC_DSP.cpp
 // ============================================================================
@@ -118,6 +118,10 @@ void Dsp::Power() {
     }
 
     newKon_ = regs_[kKon];
+    kon_ = 0;
+    endxBuf_ = envxBuf_ = outxBuf_ = 0;
+    samplesWritten_ = 0;
+    echoLength_ = 0;
 
     SoftReset();
 }

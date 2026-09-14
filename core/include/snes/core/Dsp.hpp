@@ -14,7 +14,7 @@
 //   - Global registers at specific offsets
 //
 // This is a "fast" (batch) DSP — all 8 voices are processed per sample,
-// producing identical audio output to bsnes's 32-phase pipeline.
+// with register writes taking effect at sample boundaries.
 //
 // Reference: bsnes sfc/dsp/SPC_DSP.h, sfc/dsp/SPC_DSP.cpp
 // ============================================================================
