@@ -2,6 +2,8 @@
 
 A SNES emulator written in C++.
 
+<img src="img/smw.png" alt="smw" width="500"/>
+
 [Cartridge compatibility and saves](docs/compatibility.md) covers supported board layouts, prototype header detection, battery saves, headless game checks, and remaining gaps.
 
 Build and test from the repository directory with CMake, Ninja and a C++20 compiler:
