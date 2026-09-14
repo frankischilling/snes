@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Logging.hpp
+// Diagnostic logging interface.
+
 #pragma once
 
 #include <functional>

@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Emulator.hpp
+// Top-level emulator lifecycle and subsystem interface.
+
 #pragma once
 // Emulator.hpp — Top-level SNES system integration
 //

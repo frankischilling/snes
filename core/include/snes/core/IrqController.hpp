@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/IrqController.hpp
+// Interrupt timing and line state interface.
+
 #pragma once
 // IrqController.hpp — SNES NMI / IRQ dispatch state machine
 //

@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/cpu/Processor65816.cpp
+// The reusable 65816 processor core.
+
 // Processor65816.cpp — Pure WDC 65C816 CPU core implementation
 //
 // Contains:

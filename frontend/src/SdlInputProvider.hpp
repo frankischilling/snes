@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SdlInputProvider.hpp
+// SDL input provider interface.
+
 #pragma once
 // SdlInputProvider.hpp — SDL3-based keyboard input for the SNES emulator
 //

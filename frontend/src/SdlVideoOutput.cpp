@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SdlVideoOutput.cpp
+// SDL texture upload, scaling, and window presentation.
+
 // SdlVideoOutput.cpp — SDL3-based video output implementation
 
 #include "SdlVideoOutput.hpp"

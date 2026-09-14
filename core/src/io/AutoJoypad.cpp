@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/io/AutoJoypad.cpp
+// Automatic controller polling and serial latch state.
+
 // AutoJoypad.cpp — SNES auto-joypad polling implementation
 //
 // Implements the 34-step state machine matching bsnes's joypadEdge().

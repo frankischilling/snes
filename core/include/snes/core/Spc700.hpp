@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Spc700.hpp
+// SPC700 processor interface.
+
 // Spc700.hpp — Sony SPC700 Audio Processor Core
 //
 // Pure processor implementation with virtual bus interface.

@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/ppu/PpuRender.cpp
+// Scanline rendering for backgrounds, sprites, and color math.
+
 // PpuRender.cpp — SNES PPU scanline rendering pipeline
 //
 // Implements the scanline-based rendering pipeline following bsnes ppu-fast:

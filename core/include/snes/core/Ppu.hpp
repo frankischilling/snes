@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Ppu.hpp
+// PPU registers, memory ports, and rendering interface.
+
 #pragma once
 // Ppu.hpp — SNES PPU register model + scanline renderer
 //

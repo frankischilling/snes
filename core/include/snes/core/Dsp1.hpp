@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Dsp1.hpp
+// DSP-1 command interface.
+
 #pragma once
 // Dsp1.hpp — DSP-1 (uPD77C25) coprocessor HLE
 //

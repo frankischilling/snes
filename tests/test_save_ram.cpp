@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_save_ram.cpp
+// Regression coverage for battery RAM and clock persistence.
+
 #include "SaveRamFile.hpp"
 #include "snes/core/Srtc.hpp"
 #include <SDL3/SDL.h>

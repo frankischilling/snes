@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/MemoryBus.hpp
+// Unified 24-bit address bus interface.
+
 #pragma once
 // MemoryBus.hpp — Unified 24-bit SNES address space dispatch
 //

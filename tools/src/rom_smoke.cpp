@@ -1,3 +1,7 @@
+// snes emulator
+// tools/src/rom_smoke.cpp
+// Headless ROM boot, frame, and output smoke test.
+
 #include "snes/core/Emulator.hpp"
 #include "snes/core/SnesCpu.hpp"
 #include <algorithm>

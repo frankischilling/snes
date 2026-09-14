@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_ppu_regressions.cpp
+// Regression coverage for PPU registers and rendering.
+
 #include "snes/core/Ppu.hpp"
 
 #include <cstdio>

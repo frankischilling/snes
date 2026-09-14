@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Cartridge.hpp
+// Cartridge metadata, address mapping, enhancement devices, and saves.
+
 #pragma once
 
 #include <cstddef>

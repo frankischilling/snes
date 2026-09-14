@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Dsp.hpp
+// S-DSP audio state and processing interface.
+
 // Dsp.hpp — SNES S-DSP (Sony S-DSP / μPD77C25)
 //
 // The DSP is responsible for all SNES audio output:

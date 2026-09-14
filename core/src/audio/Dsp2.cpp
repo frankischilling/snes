@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/audio/Dsp2.cpp
+// DSP-2 bitmap and arithmetic command processing.
+
 #include "snes/core/Dsp2.hpp"
 
 namespace snes::core {

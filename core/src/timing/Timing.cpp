@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/timing/Timing.cpp
+// Master clock, scanline, frame, and video-region timing.
+
 // Timing.cpp — SNES dot / scanline / frame timing implementation
 
 #include "snes/core/Timing.hpp"

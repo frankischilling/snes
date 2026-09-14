@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/cartridge/Cartridge.cpp
+// Cartridge loading, header detection, mapping, and save RAM.
+
 #include "snes/core/Cartridge.hpp"
 
 #include "snes/core/Logging.hpp"

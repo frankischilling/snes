@@ -1,3 +1,7 @@
+// snes emulator
+// tools/src/trace_dump.cpp
+// Command-line CPU, PPU, and DMA trace export.
+
 #include "snes/core/Emulator.hpp"
 
 #include <iostream>

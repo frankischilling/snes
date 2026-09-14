@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SaveRamFile.cpp
+// Atomic battery RAM and clock sidecar persistence.
+
 #include "SaveRamFile.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>

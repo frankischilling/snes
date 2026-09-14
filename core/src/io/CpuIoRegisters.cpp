@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/io/CpuIoRegisters.cpp
+// CPU I/O registers, controller ports, interrupts, and DMA controls.
+
 // CpuIoRegisters.cpp — SNES CPU I/O register implementation
 //
 // Handles reads/writes to $4016-$4017 and $4200-$421F.

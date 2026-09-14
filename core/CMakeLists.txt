@@ -1,24 +1,24 @@
 add_library(snes_core
-  src/Cartridge.cpp
-  src/Cpu65816.cpp
-  src/CpuIoRegisters.cpp
-  src/Dma.cpp
-  src/Dsp.cpp
-  src/Dsp1.cpp
-  src/Dsp2.cpp
-  src/Srtc.cpp
-  src/Ppu.cpp
-  src/PpuRender.cpp
-  src/Processor65816.cpp
-  src/SnesCpu.cpp
-  src/MemoryBus.cpp
-  src/Emulator.cpp
-  src/Logging.cpp
-  src/Spc700.cpp
-  src/Smp.cpp
-  src/Timing.cpp
-  src/IrqController.cpp
-  src/AutoJoypad.cpp
+  src/cartridge/Cartridge.cpp
+  src/cpu/Cpu65816.cpp
+  src/cpu/Processor65816.cpp
+  src/cpu/SnesCpu.cpp
+  src/memory/MemoryBus.cpp
+  src/ppu/Ppu.cpp
+  src/ppu/PpuRender.cpp
+  src/audio/Dsp.cpp
+  src/audio/Dsp1.cpp
+  src/audio/Dsp2.cpp
+  src/audio/Spc700.cpp
+  src/audio/Smp.cpp
+  src/audio/Srtc.cpp
+  src/io/AutoJoypad.cpp
+  src/io/CpuIoRegisters.cpp
+  src/io/IrqController.cpp
+  src/dma/Dma.cpp
+  src/timing/Timing.cpp
+  src/system/Emulator.cpp
+  src/system/Logging.cpp
 )
 
 target_include_directories(snes_core

@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_main.cpp
+// Core integration and baseline emulator checks.
+
 #include "snes/core/Emulator.hpp"
 #include "snes/core/Cartridge.hpp"
 #include "snes/core/Cpu65816.hpp"

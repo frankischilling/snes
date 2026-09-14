@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Cpu65816.hpp
+// 65816 CPU bus and instruction interface.
+
 #pragma once
 
 #include <cstdint>

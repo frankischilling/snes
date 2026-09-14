@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/audio/Smp.cpp
+// SMP memory, timers, ports, and synchronization with the DSP.
+
 // Smp.cpp — SNES Sound Module Processor Implementation
 //
 // Provides the SPC700's bus interface: 64KB RAM, IPL ROM overlay,

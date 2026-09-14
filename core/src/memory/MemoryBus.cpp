@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/memory/MemoryBus.cpp
+// Unified 24-bit address dispatch and open-bus behavior.
+
 // MemoryBus.cpp — Unified 24-bit SNES address space dispatch
 //
 // 16 MB lookup table + handler-slot architecture.

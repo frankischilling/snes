@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/system/Emulator.cpp
+// Top-level subsystem wiring, cartridge loading, and frame execution.
+
 // Emulator.cpp — SNES system integration and frame loop
 
 #include "snes/core/Emulator.hpp"

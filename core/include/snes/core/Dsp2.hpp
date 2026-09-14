@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Dsp2.hpp
+// DSP-2 command interface.
+
 #pragma once
 
 #include <array>

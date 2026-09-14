@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/SnesCpu.hpp
+// SNES CPU wrapper interface.
+
 #pragma once
 // SnesCpu.hpp — SNES-specific CPU wrapper
 //

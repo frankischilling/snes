@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/audio/Dsp.cpp
+// S-DSP voice mixing, envelopes, echo, and sample generation.
+
 // Dsp.cpp — SNES S-DSP Implementation
 //
 // Implements the complete SNES audio DSP in "fast" (batch) mode:

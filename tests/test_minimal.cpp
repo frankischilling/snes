@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_minimal.cpp
+// Minimal executable sanity check.
+
 #include <cstdio>
 #include "snes/core/Ppu.hpp"
 int main() {

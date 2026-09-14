@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SdlInputProvider.cpp
+// SDL keyboard to controller state translation.
+
 // SdlInputProvider.cpp — SDL3-based keyboard input implementation
 
 #include "SdlInputProvider.hpp"

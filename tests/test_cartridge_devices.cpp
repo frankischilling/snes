@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_cartridge_devices.cpp
+// Regression coverage for cartridge mappers and enhancement devices.
+
 #include "snes/core/Emulator.hpp"
 #include "snes/core/SnesCpu.hpp"
 

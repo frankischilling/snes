@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Timing.hpp
+// Master clock and video-region timing interface.
+
 #pragma once
 // Timing.hpp — SNES dot / scanline / frame timing subsystem
 //
