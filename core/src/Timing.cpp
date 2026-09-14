@@ -188,6 +188,17 @@ void Timing::updateHPeriod() {
 
 // Utilities
 
+uint16_t Timing::HDot() const noexcept {
+    uint16_t clocks = hcounter_;
+    // Normal lines stretch dots 322 and 326 by two clocks each.
+    // The short NTSC line has uniform four-clock dots.
+    if (hperiod_ == kDotsPerLine) {
+        if (hcounter_ >= 1292) clocks -= 2;
+        if (hcounter_ >= 1310) clocks -= 2;
+    }
+    return clocks / 4;
+}
+
 uint16_t Timing::HPeriodForScanline(uint16_t scanline) const {
     uint16_t period = kDotsPerLine;
 

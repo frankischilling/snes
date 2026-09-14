@@ -1,7 +1,7 @@
 #pragma once
 // Timing.hpp — SNES dot / scanline / frame timing subsystem
 //
-// Tracks H/V counters in units of master clock dots (2 master clocks each).
+// Tracks horizontal master clocks and vertical scanlines in two-clock steps.
 // Provides the dot-position, scanline, and field state that every other
 // subsystem depends on:
 //
@@ -107,8 +107,11 @@ public:
 
     // Counter state
 
-    /// Current horizontal dot counter (0 .. hPeriod-1), in master clocks.
+    /// Current horizontal position (0 .. hPeriod-1), in master clocks.
     uint16_t HCounter() const noexcept { return hcounter_; }
+
+    /// Horizontal dot number for the latched PPU beam counter.
+    uint16_t HDot() const noexcept;
 
     /// Current vertical scanline counter (0 .. vPeriod-1).
     uint16_t VCounter() const noexcept { return vcounter_; }

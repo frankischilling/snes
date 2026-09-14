@@ -91,6 +91,10 @@ public:
     using LatchCallback = std::function<void()>;
     void SetCounterLatchCallback(LatchCallback cb) { onCounterLatch_ = std::move(cb); }
 
+    /// Notify timing when SETINI changes the first VBlank scanline.
+    using VDispCallback = std::function<void(uint16_t vdisp)>;
+    void SetVDispCallback(VDispCallback cb) { onVDisp_ = std::move(cb); }
+
     // Direct memory access — for DMA, testing, rendering
     uint16_t* VramData() noexcept { return vram_.get(); }
     const uint16_t* VramData() const noexcept { return vram_.get(); }
@@ -229,7 +233,8 @@ public:
 
         // $2121 CGRAM address
         uint8_t cgramAddress    = 0;
-        bool cgramAddressLatch  = false;
+        bool cgramReadLatch     = false;
+        bool cgramWriteLatch    = false;
 
         // $2133 SETINI
         bool interlace          = false;
@@ -482,6 +487,7 @@ private:
 
     // Callback for $2137 SLHV reads (triggers counter latch via Emulator)
     LatchCallback onCounterLatch_;
+    VDispCallback onVDisp_;
 
     // Interlace field ID (toggled each frame)
     bool fieldId_ = false;

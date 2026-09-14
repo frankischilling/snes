@@ -35,6 +35,9 @@ using HdmaEnableCallback = std::function<void(uint8_t channels)>;
 /// Called when $4201 (WRIO) bit 7 falls — triggers PPU counter latch
 using PpuLatchCallback = std::function<void()>;
 
+/// Called after every $4201 write with the new PIO value.
+using PioCallback = std::function<void(uint8_t pio)>;
+
 /// Called to read joypad serial data (port 0 or 1)
 using JoypadDataCallback = std::function<uint8_t(int port)>;
 
@@ -43,7 +46,7 @@ using JoypadLatchCallback = std::function<void(bool latch)>;
 
 /// Called to query timing state for $4212 HVBJOY
 struct TimingQuery {
-    uint16_t hcounter = 0;   // current H dot counter
+    uint16_t hcounter = 0;   // horizontal position in master clocks
     uint16_t vcounter = 0;   // current V scanline counter
     uint16_t vblankStart = 225; // first VBlank scanline (225 or 240)
 };
@@ -83,6 +86,7 @@ public:
     void SetDmaEnableCallback(DmaEnableCallback cb) { onDmaEnable_ = std::move(cb); }
     void SetHdmaEnableCallback(HdmaEnableCallback cb) { onHdmaEnable_ = std::move(cb); }
     void SetPpuLatchCallback(PpuLatchCallback cb)   { onPpuLatch_ = std::move(cb); }
+    void SetPioCallback(PioCallback cb) { onPio_ = std::move(cb); }
     void SetJoypadDataCallback(JoypadDataCallback cb) { onJoypadData_ = std::move(cb); }
     void SetJoypadLatchCallback(JoypadLatchCallback cb) { onJoypadLatch_ = std::move(cb); }
     void SetTimingQueryCallback(TimingQueryCallback cb) { onTimingQuery_ = std::move(cb); }
@@ -203,6 +207,7 @@ private:
     DmaEnableCallback   onDmaEnable_;
     HdmaEnableCallback  onHdmaEnable_;
     PpuLatchCallback    onPpuLatch_;
+    PioCallback         onPio_;
     JoypadDataCallback  onJoypadData_;
     JoypadLatchCallback onJoypadLatch_;
     TimingQueryCallback onTimingQuery_;

@@ -157,8 +157,8 @@ uint8_t Ppu::ReadOam(uint16_t address) {
     if (!io_.displayDisable && currentLine_ > 0 && currentLine_ < VDisp()) {
         address = latch_.oamAddress & 0x03FF;
     }
-    if (address < OamSize) return oam_[address];
-    return 0;
+    if (address & 0x200) address &= 0x21F;
+    return oam_[address];
 }
 
 void Ppu::WriteOam(uint16_t address, uint8_t data) {
@@ -167,9 +167,8 @@ void Ppu::WriteOam(uint16_t address, uint8_t data) {
     if (!io_.displayDisable && currentLine_ > 0 && currentLine_ < VDisp()) {
         address = 0x0218;
     }
-    if (address < OamSize) {
-        oam_[address] = data;
-    }
+    if (address & 0x200) address &= 0x21F;
+    oam_[address] = data;
 }
 
 void Ppu::OamAddressReset() {
@@ -295,11 +294,11 @@ uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
 
     // $213B — CGDATAREAD
     case 0x213B: {
-        if (!io_.cgramAddressLatch) {
-            io_.cgramAddressLatch = true;
+        if (!io_.cgramReadLatch) {
+            io_.cgramReadLatch = true;
             latch_.ppu2.mdr = ReadCgram(false, io_.cgramAddress);
         } else {
-            io_.cgramAddressLatch = false;
+            io_.cgramReadLatch = false;
             latch_.ppu2.mdr = (ReadCgram(true, io_.cgramAddress) & 0x7F) |
                               (latch_.ppu2.mdr & 0x80);
             io_.cgramAddress++;
@@ -731,17 +730,18 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     // $2121 — CGADD (CGRAM address)
     case 0x2121: {
         io_.cgramAddress = data;
-        io_.cgramAddressLatch = false;
+        io_.cgramReadLatch = false;
+        io_.cgramWriteLatch = false;
         return;
     }
 
     // $2122 — CGDATA (CGRAM data write)
     case 0x2122: {
-        if (!io_.cgramAddressLatch) {
-            io_.cgramAddressLatch = true;
+        if (!io_.cgramWriteLatch) {
+            io_.cgramWriteLatch = true;
             latch_.cgram = data;
         } else {
-            io_.cgramAddressLatch = false;
+            io_.cgramWriteLatch = false;
             WriteCgram(io_.cgramAddress,
                        static_cast<uint16_t>(data & 0x7F) << 8 | latch_.cgram);
             io_.cgramAddress++;
@@ -918,6 +918,7 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
         io_.pseudoHires   = (data >> 3) & 1;
         io_.extbg         = (data >> 6) & 1;
         UpdateVideoMode();
+        if (onVDisp_) onVDisp_(VDisp());
         if (PpuDebugEnabled() && (oldInterlace != io_.interlace
             || oldObjInterlace != io_.obj.interlace
             || oldOverscan != io_.overscan

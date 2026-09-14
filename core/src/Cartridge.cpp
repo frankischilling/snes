@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cctype>
 #include <limits>
 
@@ -96,7 +97,18 @@ size_t MirrorOffset(size_t offset, size_t size) {
         return 0;
     }
 
-    return offset % size;
+    // Fold unconnected address lines while retaining each populated block.
+    // For example, a 3 MiB image repeats its last MiB at offsets 3..4 MiB.
+    size_t base = 0;
+    while (offset >= size) {
+        const size_t block = std::bit_floor(offset);
+        offset -= block;
+        if (size > block) {
+            base += block;
+            size -= block;
+        }
+    }
+    return base + offset;
 }
 
 bool IsFastRegion(uint32_t cpuAddress) {
@@ -405,7 +417,8 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
         } else if (bank >= 0x40 && bank <= 0x7D) {
             linear = 0x400000 + (static_cast<size_t>(bank - 0x40) * 0x10000) + addr;
         } else if ((bank <= 0x3F || (bank >= 0x80 && bank <= 0xBF)) && addr >= 0x8000) {
-            linear = 0x400000 + (static_cast<size_t>(bank & 0x3F) * 0x10000) + addr;
+            const size_t half = (bank & 0x80) ? 0 : 0x400000;
+            linear = half + (static_cast<size_t>(bank & 0x3F) * 0x10000) + addr;
         }
 
         if (linear == std::numeric_limits<size_t>::max()) {

@@ -222,6 +222,7 @@ void CpuIoRegisters::Write(uint32_t addr, uint8_t data) {
             if (onPpuLatch_) onPpuLatch_();
         }
         pio_ = data;
+        if (onPio_) onPio_(pio_);
         return;
 
     // $4202 WRMPYA — multiplicand

@@ -153,26 +153,29 @@ void Emulator::InitSubsystems() {
     bus_.MapDma(dma_);
     bus_.MapCartridge(*cartridge_);
 
-    // Map DSP-1 coprocessor if the cartridge uses it (type $03, $05, etc.)
+    // Map the DSP-1 data and status windows for the cartridge board.
+    dsp1_.reset();
     uint8_t cartType = cartridge_->Header().cartridgeType;
     if (cartType == 0x03 || cartType == 0x05) {
         dsp1_ = std::make_unique<Dsp1>();
         auto* dsp1ptr = dsp1_.get();
-        // DSP-1 is mapped at banks $00-$1F,$80-$9F : $6000-$7FFF
-        // Even addresses = Data Register (DR), Odd addresses = Status Register (SR)
-        auto dsp1Read = [dsp1ptr](uint32_t addr, uint8_t /*openBus*/) -> uint8_t {
-            if (addr & 1)
-                return dsp1ptr->GetSr();
-            else
-                return dsp1ptr->GetDr();
+        const bool loRom = cartridge_->Header().mapping == MappingType::LoRom;
+        const bool largeLoRom = loRom && cartridge_->RomData().size() > 0x100000;
+        const uint8_t bankLo = loRom ? (largeLoRom ? 0x60 : 0x20) : 0x00;
+        const uint8_t bankHi = loRom ? (largeLoRom ? 0x6F : 0x3F) : 0x1F;
+        const uint16_t addrLo = loRom ? (largeLoRom ? 0x0000 : 0x8000) : 0x6000;
+        const uint16_t addrHi = loRom && !largeLoRom ? 0xFFFF : 0x7FFF;
+        const uint16_t statusStart = loRom ? (largeLoRom ? 0x4000 : 0xC000) : 0x7000;
+        auto dsp1Read = [dsp1ptr, statusStart](uint32_t addr, uint8_t /*openBus*/) -> uint8_t {
+            return (addr & 0xFFFF) >= statusStart ? dsp1ptr->GetSr() : dsp1ptr->GetDr();
         };
-        auto dsp1Write = [dsp1ptr](uint32_t addr, uint8_t data) {
-            if (!(addr & 1))
+        auto dsp1Write = [dsp1ptr, statusStart](uint32_t addr, uint8_t data) {
+            if ((addr & 0xFFFF) < statusStart)
                 dsp1ptr->SetDr(data);
         };
         uint8_t slot = bus_.RegisterHandler(dsp1Read, dsp1Write);
-        bus_.MapRange(0x00, 0x1F, 0x6000, 0x7FFF, slot);
-        bus_.MapRange(0x80, 0x9F, 0x6000, 0x7FFF, slot);
+        bus_.MapRange(bankLo, bankHi, addrLo, addrHi, slot);
+        bus_.MapRange(bankLo | 0x80, bankHi | 0x80, addrLo, addrHi, slot);
     }
 
     // 3. Create the 65816 CPU (needs bus_ reference)
@@ -207,12 +210,20 @@ void Emulator::InitSubsystems() {
 
     // PPU counter latch ($4201 WRIO bit-7 falling edge)
     cpuIo_.SetPpuLatchCallback([this]() {
-        ppu_.LatchCounters(timing_.HCounter(), timing_.VCounter());
+        ppu_.LatchCounters(timing_.HDot(), timing_.VCounter());
+    });
+    cpuIo_.SetPioCallback([this](uint8_t pio) {
+        ppu_.SetCpuPio(pio);
     });
 
     // PPU counter latch ($2137 SLHV read when PIO bit 7 is high)
     ppu_.SetCounterLatchCallback([this]() {
-        ppu_.LatchCounters(timing_.HCounter(), timing_.VCounter());
+        ppu_.LatchCounters(timing_.HDot(), timing_.VCounter());
+    });
+
+    // SETINI changes the VBlank boundary used by rendering, DMA and CPU I/O.
+    ppu_.SetVDispCallback([this](uint16_t vdisp) {
+        timing_.SetVDisp(vdisp);
     });
 
     // HVBJOY ($4212) timing query

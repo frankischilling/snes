@@ -28,6 +28,10 @@ add_executable(snes_ppu_regression_tests test_ppu_regressions.cpp)
 target_link_libraries(snes_ppu_regression_tests PRIVATE snes_core)
 add_test(NAME snes_ppu_regression_tests COMMAND snes_ppu_regression_tests)
 
+add_executable(snes_hardware_regression_tests test_hardware_regressions.cpp)
+target_link_libraries(snes_hardware_regression_tests PRIVATE snes_core)
+add_test(NAME snes_hardware_regression_tests COMMAND snes_hardware_regression_tests)
+
 add_executable(snes_audio_regression_tests test_audio_regressions.cpp)
 target_link_libraries(snes_audio_regression_tests PRIVATE snes_core)
 add_test(NAME snes_audio_regression_tests COMMAND snes_audio_regression_tests)
