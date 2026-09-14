@@ -278,7 +278,7 @@ uint16_t Ppu::GetTile(const Line& line, const Background& bg,
     if (tileX & 0x20) offset += screenX;
     if (tileY & 0x20) offset += screenY;
 
-    return vram_[(bg.screenAddress + offset) & 0x7FFF];
+    return line.vram[(bg.screenAddress + offset) & 0x7FFF];
 }
 
 // RenderBackground — tiled BG rendering (modes 0-6, 2/4/8bpp)
@@ -415,12 +415,12 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
             ((tileNumber << colorShift) + ((voffset2 & 7) ^ mirrorY)) & 0x7FFF);
 
         uint64_t data = 0;
-        data  = static_cast<uint64_t>(vram_[address +  0]) <<  0; // planes 0-1
+        data  = static_cast<uint64_t>(line.vram[address +  0]) <<  0; // planes 0-1
         if (tileMode >= 1)
-            data |= static_cast<uint64_t>(vram_[address +  8]) << 16; // planes 2-3
+            data |= static_cast<uint64_t>(line.vram[address +  8]) << 16; // planes 2-3
         if (tileMode >= 2) {
-            data |= static_cast<uint64_t>(vram_[address + 16]) << 32; // planes 4-5
-            data |= static_cast<uint64_t>(vram_[address + 24]) << 48; // planes 6-7
+            data |= static_cast<uint64_t>(line.vram[address + 16]) << 32; // planes 4-5
+            data |= static_cast<uint64_t>(line.vram[address + 24]) << 48; // planes 6-7
         }
 
         // Decode 8 pixels from the packed bitplane data
@@ -581,13 +581,13 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
         uint16_t tileAddress = static_cast<uint16_t>(tileY * 128 + tileX);
         uint8_t tile = (line.io.mode7.repeat == 3 && outOfBounds)
                            ? 0
-                           : static_cast<uint8_t>(vram_[tileAddress & 0x7FFF] & 0xFF);
+                           : static_cast<uint8_t>(line.vram[tileAddress & 0x7FFF] & 0xFF);
 
         uint16_t palAddress = static_cast<uint16_t>(
             (tile << 6) | ((pixelY & 7) << 3) | (pixelX & 7));
         uint8_t palette = (line.io.mode7.repeat == 2 && outOfBounds)
                               ? 0
-                              : static_cast<uint8_t>((vram_[palAddress & 0x7FFF] >> 8) & 0xFF);
+                              : static_cast<uint8_t>((line.vram[palAddress & 0x7FFF] >> 8) & 0xFF);
 
         uint8_t tilePriority;
         if (source == Source::BG1) {
@@ -658,7 +658,7 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
 
     for (int n = 0; n < 128; n++) {
         uint8_t idx = static_cast<uint8_t>((obj.first + n) & 127);
-        const auto& object = objects_[idx];
+        const auto& object = line.objects[idx];
 
         // Determine sprite dimensions
         uint8_t w, h;
@@ -699,7 +699,7 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
         const auto& item = line.items[n];
         if (!item.valid) continue;
 
-        const auto& object = objects_[item.index];
+        const auto& object = line.objects[item.index];
 
         uint32_t w = item.width;
         uint32_t h = item.height;
@@ -764,8 +764,8 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
 
             // 4bpp tile data (2 VRAM words = 32 bits)
             uint32_t d = 0;
-            d  = static_cast<uint32_t>(vram_[(address + 0) & 0x7FFF]) <<  0;
-            d |= static_cast<uint32_t>(vram_[(address + 8) & 0x7FFF]) << 16;
+            d  = static_cast<uint32_t>(line.vram[(address + 0) & 0x7FFF]) <<  0;
+            d |= static_cast<uint32_t>(line.vram[(address + 8) & 0x7FFF]) << 16;
             tile.data = d;
 
             line.tiles[tileCount] = tile;

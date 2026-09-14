@@ -43,6 +43,17 @@ struct MouseState {
     bool right = false;
 };
 
+struct LightGunState {
+    // Coordinates use 256 horizontal dots and visible (non-interlaced) rows.
+    int32_t x = 128, y = 112;
+    bool trigger = false;
+    bool cursor = false;
+    bool turbo = false;
+    bool pause = false;
+    bool start = false;
+    bool offscreen = true;
+};
+
 class IVideoOutput {
 public:
     virtual ~IVideoOutput() = default;
@@ -64,6 +75,7 @@ public:
     }
     // Relative movement is consumed once when the console latches the mouse.
     virtual MouseState PollMouse(int /*port*/, uint64_t /*frameIndex*/) { return {}; }
+    virtual LightGunState PollLightGun(int /*port*/, int /*gun*/, uint64_t /*frameIndex*/) { return {}; }
 };
 
 class ITimingSource {

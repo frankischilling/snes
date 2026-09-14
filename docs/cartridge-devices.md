@@ -14,7 +14,7 @@ DSP-1 remains available through its existing board windows. DSP-3 and DSP-4 are 
 
 OBC1 has 8 KiB of RAM at $00-$3F/$80-$BF:$6000-$7FFF. Registers $7FF0-$7FF3 read and write the selected object's four bytes. Register $7FF4 reads its packed attribute byte and writes only the selected object's two bits. Registers $7FF5 and $7FF6 select the object table and object index. Writes also update the register locations in RAM.
 
-RAM and selectors reset to $FF when a cartridge loads. This implements the object controller; Super Scope input is still missing, so it does not establish playability for games that require that accessory.
+RAM and selectors reset to $FF when a cartridge loads. [Super Scope input](light-guns-and-raster.md) is available separately. The object controller and gun protocol have synthetic tests, but games requiring both have not been tested.
 
 ## S-RTC
 
@@ -62,4 +62,4 @@ Local 1,800-frame checks produced visible output and non-silent audio for Super 
 
 [Controllers and cartridge slots](controllers-and-slots.md) describes mouse, multitap, BS slot boards, and combined Sufami Turbo support. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) covers decompression, bank switching, expanded ROM layouts, and video changes.
 
-SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states, rewind, Super Scope, Justifiers, and MACS rifle also remain unfinished. Register and mapper coverage here is not full system compatibility.
+SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states and rewind also remain unfinished. Register and mapper coverage here is not full system compatibility.

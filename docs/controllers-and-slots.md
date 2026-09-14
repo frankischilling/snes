@@ -2,7 +2,7 @@
 
 ## Controller setup
 
-Each console port accepts `pad`, `mouse`, `multitap`, or `none`. Both default to `pad`.
+Each console port accepts `pad`, `mouse`, `multitap`, or `none`. Both default to `pad`. Port two also accepts `scope`, `justifier`, `justifiers`, and `rifle`; see [light-gun setup and controls](light-guns-and-raster.md).
 
 ```powershell
 .\out\build\release\frontend\snes_frontend.exe --port1=mouse "C:\games\game.sfc"
@@ -55,4 +55,4 @@ The controller tests exercise manual/automatic polling through CPU I/O, mouse pa
 
 Local 1,800-frame runs with Start at frame 600 produced 1,633 visible frames for Super Mario World and 1,448 for the Contra prototype. Both generated non-silent audio; the saved Contra frame showed gameplay. These runs check existing game behavior, not commercial mouse, multitap, or slot-cartridge compatibility.
 
-Super Scope, Justifiers, and MACS rifle remain unsupported. SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST010/011/018, and MSU-1 still need implementations. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) describes the added decompressor and mapper. This change does not establish full CPU, video, audio, or timing accuracy.
+SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, and MSU-1 still need implementations. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) describes the added decompressor and mapper. This change does not establish full CPU, video, audio, or timing accuracy.

@@ -91,6 +91,7 @@ public:
     void SetHdmaEnableCallback(HdmaEnableCallback cb) { onHdmaEnable_ = std::move(cb); }
     void SetPpuLatchCallback(PpuLatchCallback cb)   { onPpuLatch_ = std::move(cb); }
     void SetPioCallback(PioCallback cb) { onPio_ = std::move(cb); }
+    void SetPioInputCallback(std::function<uint8_t()> cb) { onPioInput_ = std::move(cb); }
     void SetJoypadDataCallback(JoypadDataCallback cb) { onJoypadData_ = std::move(cb); }
     void SetJoypadLatchCallback(JoypadLatchCallback cb) { onJoypadLatch_ = std::move(cb); }
     void SetTimingQueryCallback(TimingQueryCallback cb) { onTimingQuery_ = std::move(cb); }
@@ -212,6 +213,7 @@ private:
     HdmaEnableCallback  onHdmaEnable_;
     PpuLatchCallback    onPpuLatch_;
     PioCallback         onPio_;
+    std::function<uint8_t()> onPioInput_;
     JoypadDataCallback  onJoypadData_;
     JoypadLatchCallback onJoypadLatch_;
     TimingQueryCallback onTimingQuery_;

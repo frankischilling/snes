@@ -17,6 +17,7 @@
 // Call SDL_PumpEvents() before Poll() so the keyboard state is current.
 
 #include "snes/core/Platform.hpp"
+#include "VideoGeometry.hpp"
 
 #include <SDL3/SDL.h>
 #include <array>
@@ -50,6 +51,8 @@ public:
     snes::core::InputState Poll(uint64_t frameIndex) override;
     snes::core::InputState PollController(int player, uint64_t frameIndex) override;
     snes::core::MouseState PollMouse(int port, uint64_t frameIndex) override;
+    snes::core::LightGunState PollLightGun(int port, int gun, uint64_t frameIndex) override;
+    void SetGunViewport(VideoViewport viewport, bool focused) { gunViewport_ = viewport; gunFocused_ = focused; }
 
     /// Replace the current key mapping at runtime.
     void SetKeyMap(const KeyMap& keyMap) noexcept { keyMap_ = keyMap; }
@@ -90,6 +93,11 @@ private:
     void RefreshGamepads(uint64_t frameIndex);
     uint64_t lastDeviceFrame_ = uint64_t(-1);
     float mouseFractionX_ = 0, mouseFractionY_ = 0;
+    VideoViewport gunViewport_;
+    bool gunFocused_ = false;
+    bool scopeTurbo_ = false, turboKeyDown_ = false;
+    int secondGunX_ = 128, secondGunY_ = 112;
+    uint64_t lastGunFrame_ = uint64_t(-1);
 };
 
 } // namespace snes::frontend

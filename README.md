@@ -27,4 +27,6 @@ Run a game on Windows:
 [Cartridge devices and region timing](docs/cartridge-devices.md) covers DSP-2, OBC1, S-RTC, Sufami Turbo, cartridge saves, and PAL timing.
 [Controllers and cartridge slots](docs/controllers-and-slots.md) covers mouse and multitap setup, host gamepads, BS slot boards and flash saves, and combined Sufami Turbo images.
 [S-DD1, DMA timing, and video output](docs/dma-video-and-sdd1.md) covers decompression, expanded cartridge images, DMA stalls, high resolution, interlace, tests, and remaining hardware gaps.
+[Light guns and raster memory](docs/light-guns-and-raster.md) covers Super Scope, Justifiers, MACS rifle, aiming controls, beam latches, and scanline memory snapshots.
+[ST010 cartridge support](docs/st010.md) covers the board map, eight math commands, shared save RAM, and validation limits.
 [Source layout](docs/source-layout.md) describes the core subsystem folders.

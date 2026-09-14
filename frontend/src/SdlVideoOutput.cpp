@@ -73,36 +73,37 @@ void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
     int pitch = static_cast<int>(frame.width * sizeof(uint32_t));
     SDL_UpdateTexture(texture_, nullptr, frame.pixels.data(), pitch);
 
-    // Compute integer-scaled destination rect, centered in window.
+    // Fit the picture to the window, using integer scaling when it fits.
     int winW = 0, winH = 0;
     SDL_GetWindowSize(window_, &winW, &winH);
-    // High-resolution dots and interlaced fields cover the same display area.
-    const int displayW = 256;
-    const int displayH = static_cast<int>(frame.height) / (frame.height > 240 ? 2 : 1);
-    int scaleX = winW / displayW;
-    int scaleY = winH / displayH;
-    int scale  = (scaleX < scaleY) ? scaleX : scaleY;
-    if (scale < 1) scale = 1;
-    int dstW = displayW * scale;
-    int dstH = displayH * scale;
-    SDL_FRect dst;
-    dst.x = static_cast<float>((winW - dstW) / 2);
-    dst.y = static_cast<float>((winH - dstH) / 2);
-    dst.w = static_cast<float>(dstW);
-    dst.h = static_cast<float>(dstH);
+    const auto viewport = MakeVideoViewport(winW, winH, frame.height);
+    SDL_FRect dst{viewport.x, viewport.y, viewport.width, viewport.height};
 
     // One-shot: log presentation dimensions
     static bool logged = false;
     if (!logged) {
-        fprintf(stderr, "[VIDEO] frame=%ux%u window=%dx%d scale=%d dst=%.0fx%.0f+%.0f+%.0f\n",
-                frame.width, frame.height, winW, winH, scale,
+        fprintf(stderr, "[VIDEO] frame=%ux%u window=%dx%d dst=%.0fx%.0f+%.0f+%.0f\n",
+                frame.width, frame.height, winW, winH,
                 dst.w, dst.h, dst.x, dst.y);
         logged = true;
     }
 
-    // Draw — black letterbox + integer-scaled texture
+    // Draw the picture and gun sights over a black letterbox.
+    SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
     SDL_RenderClear(renderer_);
     SDL_RenderTexture(renderer_, texture_, nullptr, &dst);
+    for (unsigned gun = 0; gun < std::min(gunCount_, 2u); ++gun) {
+        const auto& aim = gunAim_[gun];
+        if (aim.offscreen || viewport.visibleLines == 0) continue;
+        const float x = dst.x + (aim.x + 0.5f) * dst.w / 256;
+        const float y = dst.y + (aim.y + 0.5f) * dst.h / viewport.visibleLines;
+        SDL_SetRenderDrawColor(renderer_, 0, 0, 0, 255);
+        const SDL_FRect horizontal{x - 8, y - 1, 17, 3}, vertical{x - 1, y - 8, 3, 17};
+        SDL_RenderFillRect(renderer_, &horizontal); SDL_RenderFillRect(renderer_, &vertical);
+        SDL_SetRenderDrawColor(renderer_, gun ? 255 : 0, gun ? 0 : 255, gun ? 255 : 0, 255);
+        SDL_RenderLine(renderer_, x - 7, y, x + 7, y);
+        SDL_RenderLine(renderer_, x, y - 7, x, y + 7);
+    }
     SDL_RenderPresent(renderer_);
 
     // Save a probe frame as BMP for diagnostic comparison.
@@ -130,6 +131,12 @@ void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
 
 uint32_t SdlVideoOutput::WindowID() const noexcept {
     return window_ ? SDL_GetWindowID(window_) : 0;
+}
+
+VideoViewport SdlVideoOutput::InputViewport() const {
+    int width = 0, height = 0;
+    SDL_GetWindowSize(window_, &width, &height);
+    return MakeVideoViewport(width, height, texH_ ? texH_ : 224);
 }
 
 // EnsureTexture — (re)create texture when frame dimensions change

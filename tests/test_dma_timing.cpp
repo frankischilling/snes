@@ -50,6 +50,27 @@ void ClockedTransfers() {
     Check(emu->GetSmp().CycleCount() > 0, "APU advances during DMA");
 }
 
+void PaletteClockUnits() {
+    for (unsigned start : {200u, 1200u}) {
+        auto emu = Machine();
+        auto& bus = emu->GetBus();
+        auto& dma = emu->GetDma();
+        bus.Write(0x2100, 15);
+        bus.Write(0x2121, 5);
+        bus.Write(0x7e0000, 0x1f);
+        bus.Write(0x7e0001, 0);
+        emu->GetTiming().Tick(1364 + start);
+        auto& ch = dma.Channel(0);
+        ch.writeControl(0); ch.sourceBank = 0x7e; ch.sourceAddress = 0;
+        ch.targetAddress = 0x22; ch.transferSize = 2;
+        dma.EnableDma(1); dma.RunDma();
+        Check(emu->GetPpu().CgramData()[5] == (start == 1200 ? 0x1f : 0),
+              "CGRAM gating uses master clocks: active writes redirect, HBlank writes use CGADD");
+        Check(emu->GetPpu().CgramData()[0] == (start == 200 ? 0x1f : 0),
+              "Active CGRAM write uses the rendering latch");
+    }
+}
+
 void HdmaInterruptsDma() {
     for (bool sameChannel : {false, true}) {
         auto emu = Machine();
@@ -112,7 +133,7 @@ void FieldTimingAndPresentation() {
 }
 }
 int main() {
-    try { ClockedTransfers(); HdmaInterruptsDma(); FieldTimingAndPresentation(); }
+    try { ClockedTransfers(); PaletteClockUnits(); HdmaInterruptsDma(); FieldTimingAndPresentation(); }
     catch (const std::exception& e) { std::fprintf(stderr, "%s\n", e.what()); return 1; }
     std::puts("DMA timing, HDMA interruption, and field presentation checks passed");
 }

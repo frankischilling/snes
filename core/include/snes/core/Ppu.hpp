@@ -55,7 +55,7 @@ public:
     void FrameBegin();
 
     /// Called at the start of each visible scanline (V=1..vdisp-1).
-    /// Snapshots IO state for the scanline renderer.
+    /// Snapshots registers, palettes, tile memory, and objects for the renderer.
     void ScanlineBegin(uint16_t line);
 
     /// Called at V=vdisp (start of vblank).
@@ -84,10 +84,10 @@ public:
     /// scanline position for display-disable checks.
     void SetCurrentLine(uint16_t vcounter) noexcept { currentLine_ = vcounter; }
 
-    /// Set the current H counter (for CGRAM mid-scanline gating).
+    /// Set the current horizontal master-clock count (for CGRAM gating).
     /// The timing layer calls this before PPU register accesses so the PPU
-    /// knows whether the dot is in active rendering or HBlank.
-    void SetCurrentDot(uint16_t hcounter) noexcept { currentDot_ = hcounter; }
+    /// knows whether the access is in active rendering or HBlank.
+    void SetCurrentHClock(uint16_t hcounter) noexcept { currentHClock_ = hcounter; }
 
     /// Set the CPU PIO register ($4201) value — needed for STAT78 counter
     /// latch bit behavior. The CPU I/O layer updates this on WRIO writes.
@@ -334,6 +334,8 @@ public:
 
         IO       io;                              // Snapshot of PPU IO
         uint16_t cgram[CgramColors] = {};         // Snapshot of palette
+        std::array<uint16_t, VramWords> vram{};
+        std::array<Object, 128> objects{};
 
         ObjectItem items[128]  = {};
         ObjectTile tiles[128]  = {};
@@ -486,8 +488,8 @@ private:
     // Current scanline (set by timing layer for display-disable checks)
     uint16_t currentLine_ = 0;
 
-    // Current H dot (set by timing layer for CGRAM mid-scanline gating)
-    uint16_t currentDot_ = 0;
+    // Horizontal master clocks (set by timing for CGRAM access gating).
+    uint16_t currentHClock_ = 0;
 
     // CPU PIO register ($4201) — needed for STAT78 counter latch behavior
     uint8_t cpuPio_ = 0xFF;
