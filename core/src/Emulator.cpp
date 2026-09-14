@@ -41,6 +41,10 @@ std::optional<const char*> UnsupportedChipName(uint8_t cartType) {
 // Construction / destruction
 // ============================================================================
 
+Emulator::Emulator() : config_(Config{}) {
+    Logger::Instance().Write(LogLevel::Info, "Emulator initialized");
+}
+
 Emulator::Emulator(Config config)
     : config_(std::move(config)) {
     Logger::Instance().Write(LogLevel::Info, "Emulator initialized");

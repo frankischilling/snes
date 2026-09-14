@@ -40,7 +40,8 @@ public:
         SDL_Scancode select = SDL_SCANCODE_RSHIFT;
     };
 
-    explicit SdlInputProvider(const KeyMap& keyMap = {});
+    explicit SdlInputProvider();
+    explicit SdlInputProvider(const KeyMap& keyMap);
     ~SdlInputProvider() override = default;
 
     // IInputProvider

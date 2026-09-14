@@ -341,7 +341,7 @@ public:
 
     /// Per-scanline rendering state — snapshotted at cache time.
     struct Line {
-        uint16_t y       = 0;
+        uint16_t y       = 0; // Hardware vcounter; first visible line is 1.
         bool     fieldID = false;
 
         IO       io;                              // Snapshot of PPU IO

@@ -28,7 +28,8 @@ public:
         int channels   = 2;           // stereo
     };
 
-    explicit SdlAudioOutput(const Config& config = {});
+    explicit SdlAudioOutput();
+    explicit SdlAudioOutput(const Config& config);
     ~SdlAudioOutput() override;
 
     // Non-copyable / non-movable (owns SDL resources)

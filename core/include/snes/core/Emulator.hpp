@@ -61,7 +61,8 @@ public:
         uint64_t masterCyclesPerFrame = 357368;
     };
 
-    explicit Emulator(Config config = {});
+    explicit Emulator();
+    explicit Emulator(Config config);
     ~Emulator();
 
     // Non-copyable, non-movable (owns large subsystems by value)
@@ -106,7 +107,7 @@ private:
 
     void EmitTrace(const TraceEvent& event) const;
 
-    Config config_{};
+    Config config_;
     uint64_t frameIndex_ = 0;
     uint64_t masterCycles_ = 0;
     bool initialized_ = false;

@@ -8,6 +8,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SNES_ENABLE_TESTS "Build tests" ON)
 
+add_compile_definitions(__PRFCHWINTRIN_H)
+
 # ============================================================================
 # SDL3 — fetched from GitHub if not already installed
 # ============================================================================

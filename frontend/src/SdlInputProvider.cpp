@@ -9,6 +9,8 @@
 
 namespace snes::frontend {
 
+SdlInputProvider::SdlInputProvider() : SdlInputProvider(KeyMap{}) {}
+
 SdlInputProvider::SdlInputProvider(const KeyMap& keyMap)
     : keyMap_(keyMap)
     , scriptedRanges_(ParseScript())

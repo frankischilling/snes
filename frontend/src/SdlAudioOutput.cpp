@@ -12,6 +12,8 @@ namespace snes::frontend {
 // Construction / Destruction
 // ============================================================================
 
+SdlAudioOutput::SdlAudioOutput() : SdlAudioOutput(Config{}) {}
+
 SdlAudioOutput::SdlAudioOutput(const Config& config) {
     // Describe the format we will push: stereo float at the SNES sample rate.
     SDL_AudioSpec spec{};

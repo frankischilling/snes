@@ -370,11 +370,13 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
 
     switch (mapping) {
     case MappingType::LoRom:
-        // bsnes LOROM/LOROM-RAM defaults:
-        // ROM: $00-7D,$80-FF:$8000-$FFFF
+        // Snes9x Map_LoROMMap maps both halves of the full-ROM banks.
+        // SRAM below takes precedence in $70-7D/$F0-FF.
         MapRegions({
             {uint8_t(0x00), uint8_t(0x7D), uint16_t(0x8000), uint16_t(0xFFFF)},
             {uint8_t(0x80), uint8_t(0xFF), uint16_t(0x8000), uint16_t(0xFFFF)},
+            {uint8_t(0x40), uint8_t(0x7D), uint16_t(0x0000), uint16_t(0x7FFF)},
+            {uint8_t(0xC0), uint8_t(0xFF), uint16_t(0x0000), uint16_t(0x7FFF)},
         }, cartSlot);
 
         // SRAM: $70-7D,$F0-FF:$0000-$7FFF

@@ -371,9 +371,9 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
 
     switch (header_.mapping) {
     case MappingType::LoRom: {
-        // bsnes LOROM/LOROM-RAM defaults only decode ROM in upper halves.
-        // Address decoding still uses 32KB pages: (bank << 15) | (addr & 0x7FFF).
-        if (addr >= 0x8000) {
+        // Snes9x map_lorom mirrors each 32KB page into both halves of full-ROM banks.
+        const bool fullRomBank = (bank >= 0x40 && bank <= 0x7D) || bank >= 0xC0;
+        if (fullRomBank || (addr >= 0x8000 && bank != 0x7E && bank != 0x7F)) {
             const auto linear =
                 (static_cast<size_t>(bank & 0x7F) << 15) |
                 static_cast<size_t>(addr & 0x7FFF);

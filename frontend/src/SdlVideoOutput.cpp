@@ -26,6 +26,8 @@ int ProbeFrameIndex() {
 // Construction / Destruction
 // ============================================================================
 
+SdlVideoOutput::SdlVideoOutput() : SdlVideoOutput(Config{}) {}
+
 SdlVideoOutput::SdlVideoOutput(const Config& config) {
     int windowW = config.baseW * config.scale;
     int windowH = config.baseH * config.scale;

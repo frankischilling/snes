@@ -33,7 +33,8 @@ public:
         bool        vsync   = true;
     };
 
-    explicit SdlVideoOutput(const Config& config = {});
+    explicit SdlVideoOutput();
+    explicit SdlVideoOutput(const Config& config);
     ~SdlVideoOutput() override;
 
     // Non-copyable / non-movable (owns SDL resources)

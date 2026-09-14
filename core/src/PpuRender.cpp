@@ -326,8 +326,8 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
                       static_cast<uint32_t>(bg.tileSize) <<
                       static_cast<uint32_t>(!!(bg.screenSize & 2))) - 1;
 
-    // Cached line.y is v-1; sample BG fetch in timing-v space for bsnes parity.
-    uint32_t y = static_cast<uint32_t>((line.y + 1u) & 0xFFFFu);
+    // line.y is the hardware vcounter: output row + 1, as in Snes9x RenderLine.
+    uint32_t y = line.y;
     if (hires) {
         hscroll <<= 1;
         if (line.io.interlace) {
@@ -533,7 +533,7 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
 
     // 13-bit sign extension
     auto signExtend13 = [](uint16_t v) -> int {
-        return (v & 0x2000) ? static_cast<int>(v | 0xFFFFE000u) : static_cast<int>(v & 0x1FFF);
+        return static_cast<int>(v & 0x1FFF) - ((v & 0x1000) ? 0x2000 : 0);
     };
 
     int hcenter = signExtend13(line.io.mode7.x);
@@ -545,17 +545,19 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
         return (n & 0x2000) ? (n | ~1023) : (n & 1023);
     };
 
-    // Cached line.y is v-1; Mode 7 math uses timing-v space.
-    const int y = static_cast<int>(line.y + 1);
+    // Snes9x applies mosaic to the visible row before the Mode 7 vertical flip.
+    int y = line.y;
+    if (bg.mosaicEnable) y -= line.io.mosaic.size - line.io.mosaic.counter;
+    if (line.io.mode7.vflip) y = 255 - y;
 
     int originX = (a * clip(hoffset - hcenter) & ~63)
                 + (b * clip(voffset - vcenter) & ~63)
                 + (b * y & ~63)
-                + (hcenter << 8);
+                + hcenter * 256;
     int originY = (c * clip(hoffset - hcenter) & ~63)
                 + (d * clip(voffset - vcenter) & ~63)
                 + (d * y & ~63)
-                + (vcenter << 8);
+                + vcenter * 256;
 
     // Mosaic state
     uint16_t mosaicColor = 0;

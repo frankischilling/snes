@@ -23,6 +23,15 @@
 
 namespace {
 
+// Place tile row 0 at output row 0. The first visible hardware line is 1.
+void SetBackgroundOrigin(snes::core::Ppu& ppu) {
+    for (uint16_t reg = 0x210D; reg <= 0x2114; ++reg) {
+        const uint16_t offset = (reg & 1) ? 0 : 0x03FF;
+        ppu.WriteIO(reg, static_cast<uint8_t>(offset));
+        ppu.WriteIO(reg, static_cast<uint8_t>(offset >> 8));
+    }
+}
+
 // Flat 16-MB RAM bus (old interface for legacy Cpu65816 tests)
 class RamBus final : public snes::core::ICpuBus {
 public:
@@ -468,7 +477,7 @@ int main() {
         bus.MapWram();  // WRAM overlays after cart (higher priority for low region)
 
         // Read ROM at $00:8000 (LoROM bank 0, offset $0000)
-        assert(bus.Read(0x008000) == 0xA5);
+        assert(bus.Read(0x008000) == 0x11);
 
         // Read ROM at $80:9234
         assert(bus.Read(0x809234) == 0x5A);
@@ -480,6 +489,13 @@ int main() {
 
         // $C1:0000 maps to ROM offset $8000 (next 32KB page).
         assert(bus.Read(0xC10000) == 0x22);
+
+        // Low full-ROM banks mirror the same pages; WRAM still owns $7E/$7F.
+        assert(bus.Read(0x400000) == 0x11);
+        assert(bus.Read(0x408000) == 0x11);
+        assert(bus.Read(0x410000) == 0x22);
+        bus.Write(0x7E8000, 0x37);
+        assert(bus.Read(0x7E8000) == 0x37);
 
         // Write to SRAM via bus
         bus.Write(0x700123, 0x3C);
@@ -2500,9 +2516,12 @@ int main() {
             ppu.ScanlineBegin(2);
             assert(io.mosaic.counter == 15);
 
-            // Disable mosaic layers: counter should clear on next visible line.
+            // With all layers disabled, the next frame starts without mosaic.
             ppu.WriteIO(0x2106, 0xF0);
-            ppu.ScanlineBegin(3);
+            assert(!io.bg1.mosaicEnable && !io.bg2.mosaicEnable &&
+                   !io.bg3.mosaicEnable && !io.bg4.mosaicEnable);
+            ppu.FrameBegin();
+            ppu.ScanlineBegin(1);
             assert(io.mosaic.counter == 0);
 
             std::printf("  [14u] Mosaic counter progression passed\n");
@@ -2548,8 +2567,12 @@ int main() {
                 ppu.CgramData()[i] = 0x7FFF;
             }
 
-            ppu.VramData()[0] = 0xFFFF;
-            ppu.VramData()[8] = 0xFFFF;
+            for (int tile : {0, 1, 16, 17}) {
+                for (int row = 0; row < 8; ++row) {
+                    ppu.VramData()[tile * 16 + row] = 0xFFFF;
+                    ppu.VramData()[tile * 16 + row + 8] = 0xFFFF;
+                }
+            }
 
             uint8_t* oam = ppu.OamData();
             for (size_t i = 0; i < Ppu::OamSize; i++) {
@@ -2596,7 +2619,7 @@ int main() {
 
             const auto* objs = ppu.Objects();
             assert(objs[0].x == (16 | (1 << 8)));  // 272
-            assert(objs[0].y == 32);
+            assert(objs[0].y == 33); // Parsed Y is in hardware vcounter space.
             assert(objs[0].character == 5);
             assert(objs[0].nameselect == false);
             assert(objs[0].palette == 3);
@@ -2612,20 +2635,20 @@ int main() {
 
             ppu.ParseOam();
             for (int i = 0; i < 4; i++) {
-                assert(ppu.Objects()[i].y == yCases[i]);
+                assert(ppu.Objects()[i].y == static_cast<uint8_t>(yCases[i] + 1));
             }
 
             std::printf("  [15a] OAM parse test passed\n");
         }
 
-        // ----- Sub-test 15a2: OBJ first-active line with cached y=v-1 -----
+        // ----- Sub-test 15a2: OBJ first visible output row -----
         {
             Ppu ppu;
             setupObjFixture(ppu, 0x10, false);  // 8x8 sprite
 
-            // Cached line is v-1. For raw OAM y=0x10, first active cached line is 0x0F.
-            const uint32_t* rowBefore = renderOneScanline(ppu, 0x0E);
-            const uint32_t* rowFirst = renderOneScanline(ppu, 0x0F);
+            // Raw OAM Y is the first output row, as in Snes9x SetupOBJ.
+            const uint32_t* rowBefore = renderOneScanline(ppu, 0x0F);
+            const uint32_t* rowFirst = renderOneScanline(ppu, 0x10);
 
             assert(!isNonBlackRgb(rowBefore[40]));
             assert(isNonBlackRgb(rowFirst[40]));
@@ -2648,7 +2671,7 @@ int main() {
             std::printf("  [15a3] OBJ wraparound line selection passed\n");
         }
 
-        // ----- Sub-test 15a4: BG cached line 0 maps to visible scanline 1 -----
+        // ----- Sub-test 15a4: BG output row 0 maps to hardware scanline 1 -----
         {
             Ppu ppu;
 
@@ -2796,11 +2819,11 @@ int main() {
 
             // Write 2bpp tile data for tile 0 at tiledata address $2000
             // 2bpp: 1 VRAM word per row (16 bits = planes 0-1)
-            // Row 0: pixel 0 has color 1, pixels 1-7 have color 0
+            // Row 1: pixel 0 has color 1, pixels 1-7 have color 0
             // Plane layout: low byte = plane 0, high byte = plane 1
             // For color 1 at pixel 0: bit 7 of plane 0 = 1, plane 1 = 0
             // plane0 = 0x80, plane1 = 0x00 → VRAM word = 0x0080
-            ppu.VramData()[0x2000] = 0x0080; // row 0: leftmost pixel = color 1
+            ppu.VramData()[0x2001] = 0x0080; // row 1: leftmost pixel = color 1
 
             // The first visible line maps to vcounter 1, so scanline 0 samples
             // tile row 1 in bsnes-visible coordinates.
@@ -2817,7 +2840,7 @@ int main() {
             std::printf("  [15f] BG1 2bpp tile rendering test passed\n");
         }
 
-        // ----- Sub-test 15f2: BG fetch uses timing-v space with cached y=v-1 -----
+        // ----- Sub-test 15f2: BG fetch uses hardware scanline coordinates -----
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);  // display on, brightness 15
@@ -2827,7 +2850,7 @@ int main() {
             ppu.WriteIO(0x2107, 0x00);  // BG1 tilemap @ $0000
             ppu.WriteIO(0x210B, 0x02);  // BG1 tiledata @ $2000
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);  // BG1 HOFS
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);  // BG1 VOFS
+            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00); // BG1 VOFS
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F;  // red
@@ -2839,8 +2862,7 @@ int main() {
             ppu.VramData()[0x2000 + 0] = 0x00FF;  // plane0=FF, plane1=00 => color 1
             ppu.VramData()[0x2000 + 1] = 0xFF00;  // plane0=00, plane1=FF => color 2
 
-            // With cached y=v-1, rendered line 0 corresponds to timing v=1 and must
-            // fetch tile row 1, not row 0.
+            // Output row 0 corresponds to hardware vcounter 1 and fetches tile row 1.
             const uint32_t* row = renderOneScanline(ppu, 0);
             uint16_t bgr0 = rgba8888ToBgr555(row[0]);
             assert(bgr0 == 0x7C00);
@@ -2866,11 +2888,11 @@ int main() {
             // BG1 tiledata: nibble 2 → $2000, BG2 tiledata: nibble 3 → $3000
             ppu.WriteIO(0x210B, 0x32); // BG12NBA: BG1=2, BG2=3
 
-            // Set BG1 scroll to (0,0), BG2 scroll to (0,0)
+            // Use horizontal offset 0 and vertical offset -1 on both layers.
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00); // BG1 H
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00); // BG1 V
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
             ppu.WriteIO(0x210F, 0x00); ppu.WriteIO(0x210F, 0x00); // BG2 H
-            ppu.WriteIO(0x2110, 0x00); ppu.WriteIO(0x2110, 0x00); // BG2 V
+            ppu.WriteIO(0x2110, 0xFF); ppu.WriteIO(0x2110, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             // BG1 tile 0 at tilemap[0]: tile#=0, palette=0, priority=1 (bit 13)
             ppu.VramData()[0x0000] = 0x2000;
@@ -2924,9 +2946,9 @@ int main() {
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x02); // tiledata nibble=2 → $2000
 
-            // Scrolls = 0
+            // Place tile row 0 at output row 0.
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             // Tile at (0,0) = tile 0, palette 0
             ppu.VramData()[0x0000] = 0x0000;
@@ -3122,9 +3144,9 @@ int main() {
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x02); // tiledata at (2<<12)&0x7000=$2000
 
-            // Scrolls = 0
+            // Place tile row 0 at output row 0.
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             // Tilemap entry at (0,0): tile#=0, palette=0
             ppu.VramData()[0x0000] = 0x0000;
@@ -3237,10 +3259,8 @@ int main() {
             ppu.WriteIO(0x210B, 0x11); // BG12NBA: BG1=1 ($1000), BG2=1 ($1000)
             ppu.WriteIO(0x210C, 0x11); // BG34NBA: BG3=1 ($1000), BG4=1 ($1000)
 
-            // Zero all scrolls
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            // Place tile row 0 at output row 0
+            SetBackgroundOrigin(ppu);
 
             // In mode 0, palette bases are: BG1=0, BG2=32, BG3=64, BG4=96
             // Each BG is 2bpp so palette range = 4 colors per sub-palette
@@ -3311,10 +3331,8 @@ int main() {
             ppu.WriteIO(0x210B, 0x22); // BG1=$2000, BG2=$2000
             ppu.WriteIO(0x210C, 0x01); // BG3: nibble 1 → (1<<12)&0x7000 = $1000
 
-            // Zero scrolls
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            // Place tile row 0 at output row 0
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000; // backdrop
             ppu.CgramData()[1] = 0x001F; // BG1 4bpp pal0 color1 = red
@@ -3347,9 +3365,7 @@ int main() {
             ppu.WriteIO(0x2107, 0x00); // BG1 screen at $0000
             ppu.WriteIO(0x210B, 0x02); // BG1 tiledata: nibble 2 → $2000
 
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[200] = 0x7C1F; // purple (red + blue) at palette index 200
@@ -3392,7 +3408,7 @@ int main() {
             // Set BG1 hscroll = 4
             ppu.WriteIO(0x210D, 0x04); // low byte
             ppu.WriteIO(0x210D, 0x00); // high byte
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00); // vscroll=0
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F; // red
@@ -3447,15 +3463,15 @@ int main() {
             for (int r = 0; r < 3; r++) write2bppRow(ppu, 0x1000 + static_cast<uint16_t>(r), red_row);
             for (int r = 3; r < 8; r++) write2bppRow(ppu, 0x1000 + static_cast<uint16_t>(r), green_row);
 
-            // Render scanline 0 with vscroll=3 → should read tile row 3 → green
+            // Output row 0 with VOFS=3 samples tile row 4 (green).
             const uint32_t* row = renderOneScanline(ppu, 0);
             uint16_t px0 = rgba8888ToBgr555(row[0]);
-            assert(px0 == 0x03E0); // green (row 3)
+            assert(px0 == 0x03E0); // green (row 4)
 
-            // Render scanline 5 with vscroll=3 → tile row = (5+3)%8 = 0 → red
+            // Output row 5 samples tile row (5+1+3)%8 = 1 (red).
             const uint32_t* row2 = renderOneScanline(ppu, 5);
             uint16_t px5 = rgba8888ToBgr555(row2[0]);
-            assert(px5 == 0x001F); // red (row 0 wraps around)
+            assert(px5 == 0x001F); // red (row 1 after wrapping)
 
             std::printf("  [16e] Vertical scrolling test passed\n");
         }
@@ -3471,7 +3487,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01); // tiledata at $1000
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F; // red
@@ -3507,7 +3523,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01); // tiledata at $1000
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F; // red
@@ -3545,7 +3561,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01); // tiledata at $1000
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F; // red
@@ -3603,9 +3619,7 @@ int main() {
             ppu.WriteIO(0x2108, 0x04); // BG2 screen at $0400
             ppu.WriteIO(0x210B, 0x11); // Both tiledata at $1000
 
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F;  // BG1 pal base 0: red
@@ -3646,7 +3660,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01); // tiledata at $1000
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             // BG1 pal base = 0. 2bpp → 4 colors per sub-palette, shift = 2
@@ -3680,7 +3694,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01);
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x03E0; // backdrop = green
             ppu.CgramData()[1] = 0x001F; // palette color 1 = red
@@ -3712,7 +3726,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01); // tiledata at $1000
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F; // red
@@ -3752,7 +3766,7 @@ int main() {
             ppu.WriteIO(0x210B, 0x01); // tiledata at $1000
 
             ppu.WriteIO(0x210D, 0x00); ppu.WriteIO(0x210D, 0x00);
-            ppu.WriteIO(0x210E, 0x00); ppu.WriteIO(0x210E, 0x00);
+            ppu.WriteIO(0x210E, 0xFF); ppu.WriteIO(0x210E, 0x03); // VOFS=-1: tile row 0 at output row 0.
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x001F; // red
@@ -3859,10 +3873,8 @@ int main() {
             // OBSEL: baseSize=0 (8×8 small / 16×16 large), nameselect=0, tiledataAddress=0
             ppu.WriteIO(0x2101, 0x00);
 
-            // Zero all BG scrolls
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            // Place tile row 0 at output row 0
+            SetBackgroundOrigin(ppu);
         };
 
         // ----- 17a: Basic 8×8 sprite rendering -----
@@ -3935,9 +3947,7 @@ int main() {
             // OBSEL: sprite tiledata at $4000 (bits 0-2 = base >> 13, 0x4000>>13=2)
             ppu.WriteIO(0x2101, 0x02);
 
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 0x03E0;      // BG1 pal0 color1 = green
@@ -4035,9 +4045,7 @@ int main() {
             // OBSEL: baseSize=6 → small 16×32, large 32×64
             ppu.WriteIO(0x2101, 0x06 << 5);
 
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[128 + 1] = 0x001F; // red
@@ -4321,9 +4329,7 @@ int main() {
             // nameselect field in OBSEL bits 3-4 controls the gap size
             ppu.WriteIO(0x2101, 0x08); // nameselect=1
 
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[128 + 1] = 0x001F; // red
@@ -4413,9 +4419,7 @@ int main() {
             // BG1 screen at $0000, tiledata at $1000
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 palette color 1 = red (R=16, G=0, B=0)
             ppu.CgramData()[0] = 0x0000;
@@ -4453,9 +4457,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1 = bright red (R=24)
             ppu.CgramData()[0] = 0x0000;
@@ -4487,9 +4489,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: RGB = (20, 10, 5)
             ppu.CgramData()[0] = 0x0000;
@@ -4524,9 +4524,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: RGB = (5, 3, 1)
             ppu.CgramData()[0] = 0x0000;
@@ -4560,9 +4558,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=20
             ppu.CgramData()[0] = 0x0000;
@@ -4594,9 +4590,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=20
             ppu.CgramData()[0] = 0x0000;
@@ -4628,9 +4622,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=10
             ppu.CgramData()[0] = 0x0000;
@@ -4667,9 +4659,7 @@ int main() {
             ppu.WriteIO(0x2107, 0x00); // BG1 screen at $0000
             ppu.WriteIO(0x2108, 0x04); // BG2 screen at $0400
             ppu.WriteIO(0x210B, 0x11); // both tiledata at $1000
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 palette 0 color 1: R=10
             ppu.CgramData()[0] = 0x0000;
@@ -4708,9 +4698,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: white (31,31,31)
             ppu.CgramData()[0] = 0x0000;
@@ -4756,9 +4744,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=10
             ppu.CgramData()[0] = 0x0000;
@@ -4799,9 +4785,7 @@ int main() {
             ppu.WriteIO(0x2105, 0x00);
             // No layers on main screen → all pixels show backdrop
             ppu.WriteIO(0x212C, 0x00);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // Backdrop (CGRAM[0]): R=5
             ppu.CgramData()[0] = 5;
@@ -4831,9 +4815,7 @@ int main() {
             ppu.WriteIO(0x212D, 0x00); // nothing on sub screen
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=20
             ppu.CgramData()[0] = 0x0000; // backdrop = black
@@ -4865,9 +4847,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: black (so we just see the fixed color addition)
             ppu.CgramData()[0] = 0x0000;
@@ -4909,9 +4889,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01);
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             ppu.CgramData()[0] = 0x0000;
             ppu.CgramData()[1] = 10; // R=10
@@ -5021,9 +4999,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01); // BG1 on main
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=10, G=20, B=5
             ppu.CgramData()[0] = 0x0000;
@@ -5210,9 +5186,7 @@ int main() {
             ppu.WriteIO(0x212C, 0x01); // BG1 on main
             ppu.WriteIO(0x2107, 0x00);
             ppu.WriteIO(0x210B, 0x01);
-            for (uint32_t reg = 0x210D; reg <= 0x2114; reg++) {
-                ppu.WriteIO(reg, 0x00); ppu.WriteIO(reg, 0x00);
-            }
+            SetBackgroundOrigin(ppu);
 
             // BG1 color 1: R=10
             ppu.CgramData()[0] = 0x0000;
@@ -9797,8 +9771,8 @@ int main() {
             emu->StepFrame();
 
             assert(video.frameCount == 1);
-            assert(video.lastWidth == 512);
-            assert(video.lastHeight == 480);
+            assert(video.lastWidth == 256);
+            assert(video.lastHeight == 224);
             assert(video.hadPixels);
             std::printf("  [29i] Video output receives frame data passed\n");
         }
