@@ -37,6 +37,7 @@ std::optional<const char*> UnsupportedChipName(EnhancementChip chip) {
     case EnhancementChip::Dsp2:
     case EnhancementChip::Obc1:
     case EnhancementChip::Srtc:
+    case EnhancementChip::Sdd1:
         return std::nullopt;
     default:
         return ChipName(chip);
@@ -182,6 +183,7 @@ void Emulator::InitSubsystems() {
     bus_.MapCpuIo(cpuIo_);
     bus_.MapDma(dma_);
     bus_.MapCartridge(*cartridge_);
+    dma_.SetCartridge(&*cartridge_);
 
     // Map the DSP-1 data and status windows for the cartridge board.
     dsp1_.reset();
@@ -260,11 +262,11 @@ void Emulator::InitSubsystems() {
         }
     });
 
-    // $420B MDMAEN → DMA controller (run immediately, accumulate clocks)
+    // Start DMA after the current CPU instruction has completed.
     cpuIo_.SetDmaEnableCallback([this](uint8_t channels) {
         dma_.EnableDma(channels);
-        pendingExtraClocks_ += dma_.RunDma();
     });
+    dma_.SetClockCallback([this](uint32_t clocks) { AdvanceClocks(clocks); });
 
     // $420C HDMAEN → DMA controller
     cpuIo_.SetHdmaEnableCallback([this](uint8_t channels) {
@@ -500,38 +502,17 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     dsp_.SetOutput(audioBuf_.data(), kAudioBufSamples);
 
     // Frame timing bookkeeping
-    const uint64_t frameStart  = timing_.MasterClocksElapsed();
-    const uint32_t frameTarget = timing_.MasterClocksThisFrame();
-    pendingExtraClocks_ = 0;
+    const uint64_t frameTarget = timing_.FrameCount() + 1;
 
     // Main loop: execute CPU → tick timing → sync SMP → NMI/IRQ
 
-    while (timing_.MasterClocksElapsed() - frameStart < frameTarget) {
-        // 1. Execute one 65816 instruction
-        const uint32_t cpuClocks = cpu_->Step();
-
-
-        // 2. Advance timing by the instruction's master clocks.
-        //    This may fire onDramRefresh / onHdmaTransfer / onIrqPoll etc.
-        //    which set pendingExtraClocks_.
-        timing_.Tick(cpuClocks);
-
-        // 3. Drain accumulated DRAM / DMA / HDMA penalty clocks through timing
-        //    so that H/V counters stay consistent with real elapsed time.
-        if (pendingExtraClocks_ > 0) {
-            const uint32_t extra = pendingExtraClocks_;
-            pendingExtraClocks_ = 0;
-            timing_.Tick(extra);
+    while (timing_.FrameCount() < frameTarget) {
+        if (dma_.AnyDmaEnabled()) {
+            dma_.RunDma();
+        } else {
+            AdvanceClocks(cpu_->Step());
         }
-
-        // 4. Synchronize the SMP to the current master-clock elapsed time.
-        //    SMP target = elapsed × (1,024,000 / 21,477,272)
-        const uint64_t elapsed   = timing_.MasterClocksElapsed();
-        const uint64_t smpTarget = elapsed * Smp::kClockFrequency
-                                   / timing_.MasterClockHz();
-        smp_.RunUntil(smpTarget);
-
-        // 5. NMI / IRQ dispatch (matches bsnes lastCycle() logic)
+        // Sample interrupt requests after CPU execution or a DMA stall.
         if (!irq_.IrqLocked()) {
             if (irq_.NmiTest()) {
                 cpu_->RequestNmi();
@@ -570,20 +551,17 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     // 240-line border area.
     if (videoOutput_) {
         VideoFrame frame;
-        const bool overscan = ppu_.FrameOverscan();
-        const int visH   = overscan ? 239 : 224;
-        const int startY = 0;
-        frame.width  = 256;
-        frame.height = static_cast<uint32_t>(visH);
+        frame.width = ppu_.FrameWidth();
+        frame.height = ppu_.FrameHeight();
         const uint32_t* src = ppu_.OutputData();
         if (src) {
-            frame.pixels.resize(static_cast<size_t>(256) * visH);
-            for (int y = 0; y < visH; y++) {
-                const uint32_t* row = src + static_cast<size_t>(startY + y) * 512;
-                std::copy(row, row + 256, frame.pixels.data() + y * 256);
+            frame.pixels.resize(static_cast<size_t>(frame.width) * frame.height);
+            for (uint32_t y = 0; y < frame.height; y++) {
+                const uint32_t* row = src + static_cast<size_t>(y) * Ppu::OutputWidth;
+                std::copy_n(row, frame.width, frame.pixels.data() + y * frame.width);
             }
         } else {
-            frame.pixels.resize(static_cast<size_t>(256) * visH, 0xFF000000);
+            frame.pixels.resize(static_cast<size_t>(frame.width) * frame.height, 0xFF000000);
         }
         videoOutput_->Present(frame);
     }
@@ -597,6 +575,21 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         .masterCycles = masterCycles_,
         .latchedInput = input,
     };
+}
+
+void Emulator::AdvanceClocks(uint32_t clocks) {
+    timing_.SetInterlace(ppu_.Interlace());
+    timing_.Tick(clocks);
+    // A penalty can trigger another refresh or HDMA event. Drain all of them
+    // before the CPU resumes, including events near the frame boundary.
+    while (pendingExtraClocks_ != 0) {
+        const auto extra = pendingExtraClocks_;
+        pendingExtraClocks_ = 0;
+        timing_.Tick(extra);
+    }
+    ppu_.SetCurrentDot(timing_.HDot());
+    const auto elapsed = timing_.MasterClocksElapsed();
+    smp_.RunUntil(elapsed * Smp::kClockFrequency / timing_.MasterClockHz());
 }
 
 // Accessors

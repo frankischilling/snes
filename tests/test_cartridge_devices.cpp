@@ -59,7 +59,7 @@ void DetectionAndReload() {
         Fixture{0x35, 0x55, 0, EnhancementChip::Srtc, true},
         Fixture{0x23, 0x35, 0, EnhancementChip::Sa1, false},
         Fixture{0x20, 0x15, 0, EnhancementChip::SuperFx, false},
-        Fixture{0x32, 0x43, 0, EnhancementChip::Sdd1, false},
+        Fixture{0x32, 0x43, 0, EnhancementChip::Sdd1, true},
         Fixture{0x3a, 0xf5, 0, EnhancementChip::Spc7110, false},
         Fixture{0x3a, 0xf9, 0, EnhancementChip::Spc7110Rtc, false},
         Fixture{0x20, 0xf3, 0, EnhancementChip::Cx4, false},

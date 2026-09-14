@@ -20,6 +20,7 @@
 
 #include "snes/core/Dma.hpp"
 #include "snes/core/MemoryBus.hpp"
+#include "snes/core/Cartridge.hpp"
 
 namespace snes::core {
 
@@ -303,7 +304,7 @@ void DmaController::WriteB(uint8_t address, uint8_t data, bool valid) {
 //   Mode 7: offset = (index >> 1)&1  (same as 3)
 //
 // Reference: bsnes dma.cpp Channel::transfer()
-void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index) {
+void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index, const uint8_t* source) {
     uint8_t addressB = ch.targetAddress;
 
     switch (ch.transferMode) {
@@ -320,7 +321,8 @@ void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index) {
 
     if (!ch.direction) {
         // Direction 0: A→B (CPU → PPU / register)
-        uint8_t data = ReadA(addressA);
+        uint8_t data = source ? *source : ReadA(addressA);
+        if (source) bus_->SetOpenBus(data);
         WriteB(addressB, data, valid);
     } else {
         // Direction 1: B→A (PPU / register → CPU)
@@ -338,15 +340,22 @@ void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index) {
 //   - Clear dmaEnable when done
 //
 // Returns master clock cycles consumed by this channel.
-uint32_t DmaController::RunChannelDma(DmaChannel& ch) {
+uint32_t DmaController::RunChannelDma(DmaChannel& ch, unsigned channel) {
     if (!ch.dmaEnable) return 0;
 
     uint32_t cycles = 8; // per-channel overhead
+    if (onClock_) onClock_(8);
+    if (!ch.dmaEnable) return cycles;
+
+    const auto decoded = cartridge_ ? cartridge_->BeginDma(channel,
+        (uint32_t(ch.sourceBank) << 16) | ch.sourceAddress,
+        ch.transferSize, ch.fixedTransfer, ch.direction) : std::vector<uint8_t>{};
+    size_t sourceIndex = 0;
 
     uint8_t index = 0;
     do {
         uint32_t aBusAddr = (static_cast<uint32_t>(ch.sourceBank) << 16) | ch.sourceAddress;
-        Transfer(ch, aBusAddr, index);
+        Transfer(ch, aBusAddr, index, decoded.empty() ? nullptr : &decoded[sourceIndex++]);
         cycles += 8; // 8 master cycles per byte transferred
 
         // Advance index within the transfer pattern
@@ -360,9 +369,12 @@ uint32_t DmaController::RunChannelDma(DmaChannel& ch) {
                 ch.sourceAddress--;
             }
         }
-    } while (ch.dmaEnable && --ch.transferSize);
+        --ch.transferSize;
+        if (onClock_) onClock_(8);
+    } while (ch.dmaEnable && ch.transferSize);
 
     ch.dmaEnable = false;
+    if (!decoded.empty()) cartridge_->EndDma(channel);
     return cycles;
 }
 
@@ -378,9 +390,10 @@ uint32_t DmaController::RunDma() {
     if (!bus_ || !AnyDmaEnabled()) return 0;
 
     uint32_t totalCycles = 8; // global DMA overhead
+    if (onClock_) onClock_(8);
 
     for (int i = 0; i < 8; ++i) {
-        totalCycles += RunChannelDma(channels_[i]);
+        totalCycles += RunChannelDma(channels_[i], unsigned(i));
     }
 
     return totalCycles;

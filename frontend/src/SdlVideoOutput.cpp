@@ -76,12 +76,15 @@ void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
     // Compute integer-scaled destination rect, centered in window.
     int winW = 0, winH = 0;
     SDL_GetWindowSize(window_, &winW, &winH);
-    int scaleX = winW / static_cast<int>(frame.width);
-    int scaleY = winH / static_cast<int>(frame.height);
+    // High-resolution dots and interlaced fields cover the same display area.
+    const int displayW = 256;
+    const int displayH = static_cast<int>(frame.height) / (frame.height > 240 ? 2 : 1);
+    int scaleX = winW / displayW;
+    int scaleY = winH / displayH;
     int scale  = (scaleX < scaleY) ? scaleX : scaleY;
     if (scale < 1) scale = 1;
-    int dstW = static_cast<int>(frame.width)  * scale;
-    int dstH = static_cast<int>(frame.height) * scale;
+    int dstW = displayW * scale;
+    int dstH = displayH * scale;
     SDL_FRect dst;
     dst.x = static_cast<float>((winW - dstW) / 2);
     dst.y = static_cast<float>((winH - dstH) / 2);

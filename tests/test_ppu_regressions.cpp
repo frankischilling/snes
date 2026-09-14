@@ -149,6 +149,68 @@ void Mode7VerticalMosaic() {
         Expect(Pixel(*ppu, 0, y) == ((y / 4 * 4 + 1) % 8) + 1,
                "Mode 7 mosaic repeats the first source row of each block");
 }
+void HighResolutionOutput() {
+    for (uint8_t mode : {0, 5, 6}) {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->WriteIO(0x2105, mode);
+        ppu->WriteIO(0x210b, 1);
+        ppu->WriteIO(0x2133, mode == 0 ? 8 : 0);
+        ppu->WriteIO(0x212c, 1);
+        ppu->WriteIO(0x212d, mode == 0 ? 0 : 1);
+        ppu->CgramData()[0] = 0x7c00;
+        ppu->CgramData()[1] = 0x001f;
+        ppu->CgramData()[2] = 0x03e0;
+        for (int row = 0; row < 8; ++row) {
+            ppu->VramData()[0x1000 + row] = mode == 0 ? 0xff : 0x55aa;
+            ppu->VramData()[0x1010 + row] = 0x55aa;
+        }
+        Render(*ppu);
+        Expect(ppu->FrameWidth() == 512, "Hires output retains 512 dots");
+        for (int x : {0, 2, 128, 254, 510}) {
+            Expect(Pixel(*ppu, x, 0) == (mode == 0 ? 0x7c00 : 0x001f), "Even output dot comes from sub screen");
+            Expect(Pixel(*ppu, x + 1, 0) == (mode == 0 ? 0x001f : 0x03e0), "Odd output dot comes from main screen");
+        }
+        // A forced blank line must clear the entire wide output row.
+        ppu->WriteIO(0x2100, 0x80);
+        Render(*ppu);
+        Expect(Pixel(*ppu, 511, 0) == 0, "Forced blank clears right edge of hires frame");
+    }
+}
+
+void MixedWidthsAndFields() {
+    auto ppu = std::make_unique<Ppu>();
+    ppu->WriteIO(0x2100, 0x0f);
+    ppu->WriteIO(0x2105, 0);
+    ppu->WriteIO(0x210b, 1);
+    ppu->WriteIO(0x212c, 1);
+    ppu->CgramData()[1] = 0x001f;
+    ppu->CgramData()[2] = 0x03e0;
+    for (int row = 0; row < 8; ++row) ppu->VramData()[0x1000 + row] = 0x55aa;
+    ppu->FrameBegin();
+    ppu->ScanlineBegin(1);
+    ppu->WriteIO(0x2133, 8);
+    ppu->ScanlineBegin(2);
+    ppu->VBlankBegin();
+    Expect(ppu->FrameWidth() == 512, "One hires line widens the output frame");
+    for (int x = 0; x < 512; ++x)
+        Expect(Pixel(*ppu, x, 0) == ((x / 2) % 2 ? 0x03e0 : 0x001f), "Low resolution lines duplicate dots in mixed frames");
+
+    ppu->WriteIO(0x212c, 0);
+    ppu->WriteIO(0x2133, 1);
+    ppu->CgramData()[0] = 0x001f;
+    Render(*ppu);
+    const bool firstField = ppu->FieldID();
+    Expect(ppu->FrameHeight() == 448, "Interlace exposes both fields");
+    Expect(Pixel(*ppu, 0, firstField) == 0x001f, "First field uses its own row parity");
+    ppu->CgramData()[0] = 0x03e0;
+    Render(*ppu);
+    Expect(Pixel(*ppu, 0, firstField) == 0x001f && Pixel(*ppu, 0, !firstField) == 0x03e0,
+           "Second field preserves the preceding field");
+    ppu->WriteIO(0x2133, 0);
+    Render(*ppu);
+    Expect(ppu->FrameWidth() == 256 && ppu->FrameHeight() == 224, "Leaving interlace restores normal frame dimensions");
+}
 } // namespace
 
 int main() {
@@ -156,6 +218,8 @@ int main() {
     SpriteFloorAlignment();
     Mode7Coordinates();
     Mode7VerticalMosaic();
+    HighResolutionOutput();
+    MixedWidthsAndFields();
     std::printf("PPU regression failures: %d\n", failures);
     return failures ? 1 : 0;
 }

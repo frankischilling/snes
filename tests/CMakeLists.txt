@@ -36,6 +36,14 @@ add_executable(snes_cartridge_device_tests test_cartridge_devices.cpp)
 target_link_libraries(snes_cartridge_device_tests PRIVATE snes_core)
 add_test(NAME snes_cartridge_device_tests COMMAND snes_cartridge_device_tests)
 
+add_executable(snes_sdd1_tests test_sdd1.cpp)
+target_link_libraries(snes_sdd1_tests PRIVATE snes_core)
+add_test(NAME snes_sdd1_tests COMMAND snes_sdd1_tests)
+
+add_executable(snes_dma_timing_tests test_dma_timing.cpp)
+target_link_libraries(snes_dma_timing_tests PRIVATE snes_core)
+add_test(NAME snes_dma_timing_tests COMMAND snes_dma_timing_tests)
+
 add_executable(snes_controller_tests test_controller_ports.cpp)
 target_link_libraries(snes_controller_tests PRIVATE snes_core)
 add_test(NAME snes_controller_tests COMMAND snes_controller_tests)
