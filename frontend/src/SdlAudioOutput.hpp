@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // SdlAudioOutput.hpp — SDL3-based audio output for the SNES emulator
 //
 // Opens an SDL3 audio stream at 32 kHz stereo float and implements
@@ -9,10 +8,9 @@
 //
 // Usage:
 //     SdlAudioOutput audio;            // opens default playback device
-//     audio.Resume();                   // un-pause
+//     audio.Resume();                   // start once the buffer is ready
 //     audio.Submit(buffer);             // push samples each frame
 //     // ... on shutdown, destructor cleans up
-// ============================================================================
 
 #include "snes/core/Platform.hpp"
 
@@ -39,11 +37,9 @@ public:
     // IAudioOutput
     void Submit(const snes::core::AudioBuffer& buffer) override;
 
-    // -----------------------------------------------------------------------
     // Playback control
-    // -----------------------------------------------------------------------
 
-    /// Un-pause the audio device (SDL3 streams start paused).
+    /// Request playback after at least 40 ms of input has been queued.
     void Resume();
 
     /// Pause the audio device.
@@ -52,11 +48,20 @@ public:
     /// Returns true if the audio stream was created successfully.
     bool IsValid() const noexcept { return stream_ != nullptr; }
 
-    /// Returns the approximate number of bytes queued in the stream.
+    /// Returns queued bytes in the input format (stereo float).
     int QueuedBytes() const;
 
+    /// The frame loop should wait while enough audio is already queued.
+    bool NeedsSamples() const;
+
 private:
+    void StartIfReady();
+
     SDL_AudioStream* stream_ = nullptr;
+    int sampleRate_ = 32000;
+    int targetQueuedBytes_ = 0;
+    bool playbackRequested_ = false;
+    bool playing_ = false;
 };
 
 } // namespace snes::frontend

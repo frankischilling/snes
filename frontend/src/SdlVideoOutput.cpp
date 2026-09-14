@@ -1,6 +1,4 @@
-// ============================================================================
 // SdlVideoOutput.cpp — SDL3-based video output implementation
-// ============================================================================
 
 #include "SdlVideoOutput.hpp"
 
@@ -22,9 +20,7 @@ int ProbeFrameIndex() {
 }
 }
 
-// ============================================================================
 // Construction / Destruction
-// ============================================================================
 
 SdlVideoOutput::SdlVideoOutput() : SdlVideoOutput(Config{}) {}
 
@@ -58,9 +54,7 @@ SdlVideoOutput::~SdlVideoOutput() {
     if (window_)   SDL_DestroyWindow(window_);
 }
 
-// ============================================================================
 // IVideoOutput::Present
-// ============================================================================
 
 void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
     if (!renderer_) return;
@@ -125,17 +119,13 @@ void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
     frameCounter++;
 }
 
-// ============================================================================
 // WindowID
-// ============================================================================
 
 uint32_t SdlVideoOutput::WindowID() const noexcept {
     return window_ ? SDL_GetWindowID(window_) : 0;
 }
 
-// ============================================================================
 // EnsureTexture — (re)create texture when frame dimensions change
-// ============================================================================
 
 void SdlVideoOutput::EnsureTexture(uint32_t w, uint32_t h) {
     if (texture_ && texW_ == w && texH_ == h) return;

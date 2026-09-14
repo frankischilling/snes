@@ -1,8 +1,7 @@
 #pragma once
-// ============================================================================
 // Timing.hpp — SNES dot / scanline / frame timing subsystem
 //
-// Tracks H/V counters in units of master clock dots (2 master clocks each).
+// Tracks horizontal master clocks and vertical scanlines in two-clock steps.
 // Provides the dot-position, scanline, and field state that every other
 // subsystem depends on:
 //
@@ -31,29 +30,22 @@
 //
 // Reference: bsnes/sfc/ppu/counter/counter-inline.hpp
 //            https://problemkaputt.de/fullsnes.htm#sabortsnesframecyclecounts
-// ============================================================================
 
 #include <cstdint>
 #include <functional>
 
 namespace snes::core {
 
-// ============================================================================
 // Region — NTSC vs PAL
-// ============================================================================
 enum class Region : uint8_t {
     NTSC = 0,
     PAL  = 1,
 };
 
-// ============================================================================
 // Timing — master-clock-accurate H/V counter
-// ============================================================================
 class Timing {
 public:
-    // -------------------------------------------------------------------
     // Constants
-    // -------------------------------------------------------------------
 
     /// Master clock frequency (≈21.477 MHz crystal ÷ 1)
     static constexpr uint32_t kMasterClockHz = 21'477'272;
@@ -94,15 +86,11 @@ public:
     /// NMI trigger position (H counter = 2, at the start of vblank scanline).
     static constexpr uint16_t kNmiHPos = 2;
 
-    // -------------------------------------------------------------------
     // Construction
-    // -------------------------------------------------------------------
 
     explicit Timing(Region region = Region::NTSC);
 
-    // -------------------------------------------------------------------
     // Configuration
-    // -------------------------------------------------------------------
 
     /// Get/set region (changes scanline count + short/long line rules).
     Region GetRegion() const noexcept { return region_; }
@@ -117,12 +105,13 @@ public:
     uint16_t VDisp() const noexcept { return vdisp_; }
     void SetVDisp(uint16_t v) noexcept { vdisp_ = v; }
 
-    // -------------------------------------------------------------------
     // Counter state
-    // -------------------------------------------------------------------
 
-    /// Current horizontal dot counter (0 .. hPeriod-1), in master clocks.
+    /// Current horizontal position (0 .. hPeriod-1), in master clocks.
     uint16_t HCounter() const noexcept { return hcounter_; }
+
+    /// Horizontal dot number for the latched PPU beam counter.
+    uint16_t HDot() const noexcept;
 
     /// Current vertical scanline counter (0 .. vPeriod-1).
     uint16_t VCounter() const noexcept { return vcounter_; }
@@ -148,9 +137,7 @@ public:
     /// Frame index (incremented every time V wraps to 0).
     uint64_t FrameCount() const noexcept { return frameCount_; }
 
-    // -------------------------------------------------------------------
     // Core tick interface
-    // -------------------------------------------------------------------
 
     /// Advance the timing subsystem by `clocks` master clocks.
     /// Fires callbacks (onScanline, onVBlank, onHBlank, etc.) at the
@@ -160,9 +147,7 @@ public:
     /// Reset all counters to power-on state.
     void Reset();
 
-    // -------------------------------------------------------------------
     // Callbacks — set by the integration layer (Emulator / StepFrame)
-    // -------------------------------------------------------------------
 
     /// Called at V=0, H=0 (start of a new frame).
     std::function<void()> onFrameBegin;
@@ -205,9 +190,7 @@ public:
     /// Matches bsnes joypadEdge() frequency.
     std::function<void(uint16_t, uint16_t, uint16_t)> onJoypadPoll;
 
-    // -------------------------------------------------------------------
     // Utility
-    // -------------------------------------------------------------------
 
     /// Compute the total master clocks in one complete frame for the
     /// current region/interlace/field configuration.

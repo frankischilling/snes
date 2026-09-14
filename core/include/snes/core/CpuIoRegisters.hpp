@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // CpuIoRegisters.hpp — SNES CPU I/O register state ($4200-$421F, $4016-$4017)
 //
 // These are the CPU-internal I/O registers, separate from WRAM, DMA, PPU, and
@@ -13,16 +12,13 @@
 // These are set by the system integrator when wiring subsystems together.
 //
 // Reference: bsnes sfc/cpu/cpu.hpp (IO struct), sfc/cpu/io.cpp
-// ============================================================================
 
 #include <cstdint>
 #include <functional>
 
 namespace snes::core {
 
-// ============================================================================
 // Callback typedefs for cross-component interaction
-// ============================================================================
 
 /// Called when $4200 (NMITIMEN) is written — passes the new data byte
 using NmitimenCallback = std::function<void(uint8_t data)>;
@@ -39,6 +35,9 @@ using HdmaEnableCallback = std::function<void(uint8_t channels)>;
 /// Called when $4201 (WRIO) bit 7 falls — triggers PPU counter latch
 using PpuLatchCallback = std::function<void()>;
 
+/// Called after every $4201 write with the new PIO value.
+using PioCallback = std::function<void(uint8_t pio)>;
+
 /// Called to read joypad serial data (port 0 or 1)
 using JoypadDataCallback = std::function<uint8_t(int port)>;
 
@@ -47,7 +46,7 @@ using JoypadLatchCallback = std::function<void(bool latch)>;
 
 /// Called to query timing state for $4212 HVBJOY
 struct TimingQuery {
-    uint16_t hcounter = 0;   // current H dot counter
+    uint16_t hcounter = 0;   // horizontal position in master clocks
     uint16_t vcounter = 0;   // current V scanline counter
     uint16_t vblankStart = 225; // first VBlank scanline (225 or 240)
 };
@@ -62,9 +61,7 @@ using TimeupCallback = std::function<bool()>;
 /// Called when $4207-$420A H/V timer targets change
 using HVTimeChangeCallback = std::function<void(uint16_t htime, uint16_t vtime)>;
 
-// ============================================================================
 // CpuIoRegisters — CPU-internal I/O register state
-// ============================================================================
 class CpuIoRegisters {
 public:
     CpuIoRegisters();
@@ -73,10 +70,8 @@ public:
     /// Reset all registers to power-on state
     void Reset();
 
-    // -----------------------------------------------------------------------
     // Bus read/write — these are called by MemoryBus handlers
     // The openBus parameter is the CPU I/O MDR value.
-    // -----------------------------------------------------------------------
 
     /// Read from CPU I/O register.  addr is the full 24-bit address;
     /// only bits 15:0 are examined.  openBus is the CPU I/O MDR.
@@ -85,14 +80,13 @@ public:
     /// Write to CPU I/O register.
     void Write(uint32_t addr, uint8_t data);
 
-    // -----------------------------------------------------------------------
     // Callback setters — called by system integrator
-    // -----------------------------------------------------------------------
     void SetNmitimenCallback(NmitimenCallback cb)   { onNmitimen_ = std::move(cb); }
     void SetMemselCallback(MemselCallback cb)       { onMemsel_ = std::move(cb); }
     void SetDmaEnableCallback(DmaEnableCallback cb) { onDmaEnable_ = std::move(cb); }
     void SetHdmaEnableCallback(HdmaEnableCallback cb) { onHdmaEnable_ = std::move(cb); }
     void SetPpuLatchCallback(PpuLatchCallback cb)   { onPpuLatch_ = std::move(cb); }
+    void SetPioCallback(PioCallback cb) { onPio_ = std::move(cb); }
     void SetJoypadDataCallback(JoypadDataCallback cb) { onJoypadData_ = std::move(cb); }
     void SetJoypadLatchCallback(JoypadLatchCallback cb) { onJoypadLatch_ = std::move(cb); }
     void SetTimingQueryCallback(TimingQueryCallback cb) { onTimingQuery_ = std::move(cb); }
@@ -100,9 +94,7 @@ public:
     void SetTimeupCallback(TimeupCallback cb) { onTimeup_ = std::move(cb); }
     void SetHVTimeChangeCallback(HVTimeChangeCallback cb) { onHVTimeChange_ = std::move(cb); }
 
-    // -----------------------------------------------------------------------
     // Direct access for other subsystems (NMI/IRQ, auto-joypad, timing)
-    // -----------------------------------------------------------------------
 
     // $4200 NMITIMEN decomposed flags
     bool nmiEnabled()   const noexcept { return nmiEnable_; }
@@ -145,16 +137,12 @@ public:
     // CPU version (for $4210 RDNMI low nibble)
     void setCpuVersion(uint8_t v) noexcept { cpuVersion_ = v; }
 
-    // -----------------------------------------------------------------------
     // ALU stepping — call once per CPU instruction cycle to advance
     // multiply/divide hardware computation
-    // -----------------------------------------------------------------------
     void AluStep();
 
 private:
-    // -----------------------------------------------------------------------
     // Register state — following bsnes CPU::IO
-    // -----------------------------------------------------------------------
 
     // $4200 NMITIMEN
     bool nmiEnable_      = false;
@@ -213,14 +201,13 @@ private:
     // Joypad strobe latch state
     bool joypadLatch_ = false;
 
-    // -----------------------------------------------------------------------
     // Callbacks
-    // -----------------------------------------------------------------------
     NmitimenCallback    onNmitimen_;
     MemselCallback      onMemsel_;
     DmaEnableCallback   onDmaEnable_;
     HdmaEnableCallback  onHdmaEnable_;
     PpuLatchCallback    onPpuLatch_;
+    PioCallback         onPio_;
     JoypadDataCallback  onJoypadData_;
     JoypadLatchCallback onJoypadLatch_;
     TimingQueryCallback onTimingQuery_;

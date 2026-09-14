@@ -1,4 +1,3 @@
-// ============================================================================
 // Processor65816.cpp — Pure WDC 65C816 CPU core implementation
 //
 // Contains:
@@ -10,16 +9,13 @@
 //
 // Logic follows bsnes processor/wdc65816/ as reference but is written clean-
 // room in standard C++20 with no external dependencies.
-// ============================================================================
 
 #include "snes/core/Processor65816.hpp"
 #include <cstring>
 
 namespace snes::core {
 
-// ============================================================================
 //  Power / Reset
-// ============================================================================
 
 void Processor65816::power() {
     r = Registers{};
@@ -46,9 +42,7 @@ void Processor65816::power() {
     r.w = 0;
 }
 
-// ============================================================================
 //  Flag helpers
-// ============================================================================
 
 void Processor65816::setFlag(uint8_t flag, bool set) {
     if (set) r.p |= flag;
@@ -79,9 +73,7 @@ void Processor65816::setE(bool enabled) {
     }
 }
 
-// ============================================================================
 //  Memory access helpers  (following bsnes processor/wdc65816/memory.cpp)
-// ============================================================================
 
 uint8_t Processor65816::fetch() {
     uint32_t addr = (static_cast<uint32_t>(r.pb) << 16) | r.pc;
@@ -197,9 +189,7 @@ void Processor65816::writeStack(uint32_t address, uint8_t data) {
     write(static_cast<uint16_t>(r.s + address), data);
 }
 
-// ============================================================================
 //  ALU algorithms  (following bsnes processor/wdc65816/algorithms.cpp)
-// ============================================================================
 
 uint8_t Processor65816::algorithmADC8(uint8_t data) {
     int result;
@@ -522,10 +512,8 @@ uint16_t Processor65816::algorithmTSB16(uint16_t data) {
     return data | r.a;
 }
 
-// ============================================================================
 //  Instruction implementations — Read operations
 //  (following bsnes processor/wdc65816/instructions-read.cpp)
-// ============================================================================
 
 // Immediate — 8-bit
 void Processor65816::instructionImmediateRead8(Alu8 op) {
@@ -796,10 +784,8 @@ void Processor65816::instructionIndirectStackRead16(Alu16 op) {
     (this->*op)(makeWord(dl, dh));
 }
 
-// ============================================================================
 //  Instruction implementations — Write operations
 //  (following bsnes processor/wdc65816/instructions-write.cpp)
-// ============================================================================
 
 // STA/STX/STY/STZ Absolute — 8-bit
 void Processor65816::instructionBankWrite8(uint16_t reg) {
@@ -1031,10 +1017,8 @@ void Processor65816::instructionIndirectStackWrite16() {
     writeBank(makeWord(al, ah) + r.y + 1, hi(r.a));
 }
 
-// ============================================================================
 //  Instruction implementations — Read-Modify-Write
 //  (following bsnes processor/wdc65816/instructions-modify.cpp)
-// ============================================================================
 
 // Implied (accumulator or register) — 8-bit
 void Processor65816::instructionImpliedModify8(Alu8 op, uint16_t& reg) {
@@ -1156,10 +1140,8 @@ void Processor65816::instructionDirectIndexedModify16(Alu16 op) {
     writeDirect(dp + r.x + 0, lo(data));
 }
 
-// ============================================================================
 //  Instruction implementations — Program counter control
 //  (following bsnes processor/wdc65816/instructions-pc.cpp)
-// ============================================================================
 
 // Branch (conditional)
 void Processor65816::instructionBranch(bool take) {
@@ -1325,10 +1307,8 @@ void Processor65816::instructionReturnLong() {
     r.pc = static_cast<uint16_t>(makeWord(pcl, pch) + 1);
 }
 
-// ============================================================================
 //  Instruction implementations — Miscellaneous
 //  (following bsnes processor/wdc65816/instructions-other.cpp)
-// ============================================================================
 
 // BIT #imm — 8-bit (only sets Z, doesn't touch N/V)
 void Processor65816::instructionBitImmediate8() {
@@ -1635,9 +1615,7 @@ void Processor65816::instructionPushEffectiveRelativeAddress() {
     pushN(lo(addr));
 }
 
-// ============================================================================
 //  Interrupt entry
-// ============================================================================
 
 void Processor65816::enterInterrupt(Interrupt type) {
     // Hardware interrupt entry: dummy read + idle cycle, matching bsnes interrupt()
@@ -1685,7 +1663,6 @@ uint16_t Processor65816::vectorAddress(Interrupt type) const {
     }
 }
 
-// ============================================================================
 //  256-opcode dispatch table
 //  (following bsnes processor/wdc65816/instruction.hpp + instruction.cpp)
 //
@@ -1693,7 +1670,6 @@ uint16_t Processor65816::vectorAddress(Interrupt type) const {
 //  by the current M/X flag state.  Uses function pointer aliases:
 //    Alu8/Alu16 for ALU operations
 //    Register references for transfers/pushes/pulls
-// ============================================================================
 
 void Processor65816::instruction() {
     uint8_t opcode = fetch();
@@ -1704,7 +1680,7 @@ void Processor65816::instruction() {
 
     switch (opcode) {
 
-    // --- ADC ---
+    // ADC
     case 0x69: M8 ? instructionImmediateRead8(&Processor65816::algorithmADC8)
                    : instructionImmediateRead16(&Processor65816::algorithmADC16); break;
     case 0x6D: M8 ? instructionBankRead8(&Processor65816::algorithmADC8)
@@ -1736,7 +1712,7 @@ void Processor65816::instruction() {
     case 0x73: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmADC8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmADC16); break;
 
-    // --- SBC ---
+    // SBC
     case 0xE9: M8 ? instructionImmediateRead8(&Processor65816::algorithmSBC8)
                    : instructionImmediateRead16(&Processor65816::algorithmSBC16); break;
     case 0xED: M8 ? instructionBankRead8(&Processor65816::algorithmSBC8)
@@ -1768,7 +1744,7 @@ void Processor65816::instruction() {
     case 0xF3: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmSBC8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmSBC16); break;
 
-    // --- AND ---
+    // AND
     case 0x29: M8 ? instructionImmediateRead8(&Processor65816::algorithmAND8)
                    : instructionImmediateRead16(&Processor65816::algorithmAND16); break;
     case 0x2D: M8 ? instructionBankRead8(&Processor65816::algorithmAND8)
@@ -1800,7 +1776,7 @@ void Processor65816::instruction() {
     case 0x33: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmAND8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmAND16); break;
 
-    // --- ORA ---
+    // ORA
     case 0x09: M8 ? instructionImmediateRead8(&Processor65816::algorithmORA8)
                    : instructionImmediateRead16(&Processor65816::algorithmORA16); break;
     case 0x0D: M8 ? instructionBankRead8(&Processor65816::algorithmORA8)
@@ -1832,7 +1808,7 @@ void Processor65816::instruction() {
     case 0x13: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmORA8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmORA16); break;
 
-    // --- EOR ---
+    // EOR
     case 0x49: M8 ? instructionImmediateRead8(&Processor65816::algorithmEOR8)
                    : instructionImmediateRead16(&Processor65816::algorithmEOR16); break;
     case 0x4D: M8 ? instructionBankRead8(&Processor65816::algorithmEOR8)
@@ -1864,7 +1840,7 @@ void Processor65816::instruction() {
     case 0x53: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmEOR8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmEOR16); break;
 
-    // --- CMP ---
+    // CMP
     case 0xC9: M8 ? instructionImmediateRead8(&Processor65816::algorithmCMP8)
                    : instructionImmediateRead16(&Processor65816::algorithmCMP16); break;
     case 0xCD: M8 ? instructionBankRead8(&Processor65816::algorithmCMP8)
@@ -1896,7 +1872,7 @@ void Processor65816::instruction() {
     case 0xD3: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmCMP8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmCMP16); break;
 
-    // --- CPX ---
+    // CPX
     case 0xE0: X8 ? instructionImmediateRead8(&Processor65816::algorithmCPX8)
                    : instructionImmediateRead16(&Processor65816::algorithmCPX16); break;
     case 0xEC: X8 ? instructionBankRead8(&Processor65816::algorithmCPX8)
@@ -1904,7 +1880,7 @@ void Processor65816::instruction() {
     case 0xE4: X8 ? instructionDirectRead8(&Processor65816::algorithmCPX8)
                    : instructionDirectRead16(&Processor65816::algorithmCPX16); break;
 
-    // --- CPY ---
+    // CPY
     case 0xC0: X8 ? instructionImmediateRead8(&Processor65816::algorithmCPY8)
                    : instructionImmediateRead16(&Processor65816::algorithmCPY16); break;
     case 0xCC: X8 ? instructionBankRead8(&Processor65816::algorithmCPY8)
@@ -1912,7 +1888,7 @@ void Processor65816::instruction() {
     case 0xC4: X8 ? instructionDirectRead8(&Processor65816::algorithmCPY8)
                    : instructionDirectRead16(&Processor65816::algorithmCPY16); break;
 
-    // --- LDA ---
+    // LDA
     case 0xA9: M8 ? instructionImmediateRead8(&Processor65816::algorithmLDA8)
                    : instructionImmediateRead16(&Processor65816::algorithmLDA16); break;
     case 0xAD: M8 ? instructionBankRead8(&Processor65816::algorithmLDA8)
@@ -1944,7 +1920,7 @@ void Processor65816::instruction() {
     case 0xB3: M8 ? instructionIndirectStackRead8(&Processor65816::algorithmLDA8)
                    : instructionIndirectStackRead16(&Processor65816::algorithmLDA16); break;
 
-    // --- LDX ---
+    // LDX
     case 0xA2: X8 ? instructionImmediateRead8(&Processor65816::algorithmLDX8)
                    : instructionImmediateRead16(&Processor65816::algorithmLDX16); break;
     case 0xAE: X8 ? instructionBankRead8(&Processor65816::algorithmLDX8)
@@ -1956,7 +1932,7 @@ void Processor65816::instruction() {
     case 0xB6: X8 ? instructionDirectRead8(&Processor65816::algorithmLDX8, r.y)
                    : instructionDirectRead16(&Processor65816::algorithmLDX16, r.y); break;
 
-    // --- LDY ---
+    // LDY
     case 0xA0: X8 ? instructionImmediateRead8(&Processor65816::algorithmLDY8)
                    : instructionImmediateRead16(&Processor65816::algorithmLDY16); break;
     case 0xAC: X8 ? instructionBankRead8(&Processor65816::algorithmLDY8)
@@ -1968,7 +1944,7 @@ void Processor65816::instruction() {
     case 0xB4: X8 ? instructionDirectRead8(&Processor65816::algorithmLDY8, r.x)
                    : instructionDirectRead16(&Processor65816::algorithmLDY16, r.x); break;
 
-    // --- BIT (non-immediate) ---
+    // BIT (non-immediate)
     case 0x2C: M8 ? instructionBankRead8(&Processor65816::algorithmBIT8)
                    : instructionBankRead16(&Processor65816::algorithmBIT16); break;
     case 0x3C: M8 ? instructionBankRead8(&Processor65816::algorithmBIT8, r.x)
@@ -1978,10 +1954,10 @@ void Processor65816::instruction() {
     case 0x34: M8 ? instructionDirectRead8(&Processor65816::algorithmBIT8, r.x)
                    : instructionDirectRead16(&Processor65816::algorithmBIT16, r.x); break;
 
-    // --- BIT #immediate ---
+    // BIT #immediate
     case 0x89: M8 ? instructionBitImmediate8() : instructionBitImmediate16(); break;
 
-    // --- STA ---
+    // STA
     case 0x8D: M8 ? instructionBankWrite8(r.a) : instructionBankWrite16(r.a); break;
     case 0x9D: M8 ? instructionBankWrite8(r.a, r.x) : instructionBankWrite16(r.a, r.x); break;
     case 0x99: M8 ? instructionBankWrite8(r.a, r.y) : instructionBankWrite16(r.a, r.y); break;
@@ -1997,23 +1973,23 @@ void Processor65816::instruction() {
     case 0x83: M8 ? instructionStackWrite8() : instructionStackWrite16(); break;
     case 0x93: M8 ? instructionIndirectStackWrite8() : instructionIndirectStackWrite16(); break;
 
-    // --- STX ---
+    // STX
     case 0x8E: X8 ? instructionBankWrite8(r.x) : instructionBankWrite16(r.x); break;
     case 0x86: X8 ? instructionDirectWrite8(r.x) : instructionDirectWrite16(r.x); break;
     case 0x96: X8 ? instructionDirectWrite8(r.x, r.y) : instructionDirectWrite16(r.x, r.y); break;
 
-    // --- STY ---
+    // STY
     case 0x8C: X8 ? instructionBankWrite8(r.y) : instructionBankWrite16(r.y); break;
     case 0x84: X8 ? instructionDirectWrite8(r.y) : instructionDirectWrite16(r.y); break;
     case 0x94: X8 ? instructionDirectWrite8(r.y, r.x) : instructionDirectWrite16(r.y, r.x); break;
 
-    // --- STZ ---
+    // STZ
     case 0x9C: M8 ? instructionBankWrite8(0) : instructionBankWrite16(0); break;
     case 0x9E: M8 ? instructionBankWrite8(0, r.x) : instructionBankWrite16(0, r.x); break;
     case 0x64: M8 ? instructionDirectWrite8(0) : instructionDirectWrite16(0); break;
     case 0x74: M8 ? instructionDirectWrite8(0, r.x) : instructionDirectWrite16(0, r.x); break;
 
-    // --- ASL ---
+    // ASL
     case 0x0A: M8 ? instructionImpliedModify8(&Processor65816::algorithmASL8, r.a)
                    : instructionImpliedModify16(&Processor65816::algorithmASL16, r.a); break;
     case 0x0E: M8 ? instructionBankModify8(&Processor65816::algorithmASL8)
@@ -2025,7 +2001,7 @@ void Processor65816::instruction() {
     case 0x16: M8 ? instructionDirectIndexedModify8(&Processor65816::algorithmASL8)
                    : instructionDirectIndexedModify16(&Processor65816::algorithmASL16); break;
 
-    // --- LSR ---
+    // LSR
     case 0x4A: M8 ? instructionImpliedModify8(&Processor65816::algorithmLSR8, r.a)
                    : instructionImpliedModify16(&Processor65816::algorithmLSR16, r.a); break;
     case 0x4E: M8 ? instructionBankModify8(&Processor65816::algorithmLSR8)
@@ -2037,7 +2013,7 @@ void Processor65816::instruction() {
     case 0x56: M8 ? instructionDirectIndexedModify8(&Processor65816::algorithmLSR8)
                    : instructionDirectIndexedModify16(&Processor65816::algorithmLSR16); break;
 
-    // --- ROL ---
+    // ROL
     case 0x2A: M8 ? instructionImpliedModify8(&Processor65816::algorithmROL8, r.a)
                    : instructionImpliedModify16(&Processor65816::algorithmROL16, r.a); break;
     case 0x2E: M8 ? instructionBankModify8(&Processor65816::algorithmROL8)
@@ -2049,7 +2025,7 @@ void Processor65816::instruction() {
     case 0x36: M8 ? instructionDirectIndexedModify8(&Processor65816::algorithmROL8)
                    : instructionDirectIndexedModify16(&Processor65816::algorithmROL16); break;
 
-    // --- ROR ---
+    // ROR
     case 0x6A: M8 ? instructionImpliedModify8(&Processor65816::algorithmROR8, r.a)
                    : instructionImpliedModify16(&Processor65816::algorithmROR16, r.a); break;
     case 0x6E: M8 ? instructionBankModify8(&Processor65816::algorithmROR8)
@@ -2061,7 +2037,7 @@ void Processor65816::instruction() {
     case 0x76: M8 ? instructionDirectIndexedModify8(&Processor65816::algorithmROR8)
                    : instructionDirectIndexedModify16(&Processor65816::algorithmROR16); break;
 
-    // --- INC ---
+    // INC
     case 0x1A: M8 ? instructionImpliedModify8(&Processor65816::algorithmINC8, r.a)
                    : instructionImpliedModify16(&Processor65816::algorithmINC16, r.a); break;
     case 0xEE: M8 ? instructionBankModify8(&Processor65816::algorithmINC8)
@@ -2073,7 +2049,7 @@ void Processor65816::instruction() {
     case 0xF6: M8 ? instructionDirectIndexedModify8(&Processor65816::algorithmINC8)
                    : instructionDirectIndexedModify16(&Processor65816::algorithmINC16); break;
 
-    // --- DEC ---
+    // DEC
     case 0x3A: M8 ? instructionImpliedModify8(&Processor65816::algorithmDEC8, r.a)
                    : instructionImpliedModify16(&Processor65816::algorithmDEC16, r.a); break;
     case 0xCE: M8 ? instructionBankModify8(&Processor65816::algorithmDEC8)
@@ -2085,7 +2061,7 @@ void Processor65816::instruction() {
     case 0xD6: M8 ? instructionDirectIndexedModify8(&Processor65816::algorithmDEC8)
                    : instructionDirectIndexedModify16(&Processor65816::algorithmDEC16); break;
 
-    // --- INX / DEX / INY / DEY ---
+    // INX / DEX / INY / DEY
     case 0xE8: X8 ? instructionImpliedModify8(&Processor65816::algorithmINC8, r.x)
                    : instructionImpliedModify16(&Processor65816::algorithmINC16, r.x); break;
     case 0xCA: X8 ? instructionImpliedModify8(&Processor65816::algorithmDEC8, r.x)
@@ -2095,7 +2071,7 @@ void Processor65816::instruction() {
     case 0x88: X8 ? instructionImpliedModify8(&Processor65816::algorithmDEC8, r.y)
                    : instructionImpliedModify16(&Processor65816::algorithmDEC16, r.y); break;
 
-    // --- TSB / TRB ---
+    // TSB / TRB
     case 0x0C: M8 ? instructionBankModify8(&Processor65816::algorithmTSB8)
                    : instructionBankModify16(&Processor65816::algorithmTSB16); break;
     case 0x04: M8 ? instructionDirectModify8(&Processor65816::algorithmTSB8)
@@ -2105,7 +2081,7 @@ void Processor65816::instruction() {
     case 0x14: M8 ? instructionDirectModify8(&Processor65816::algorithmTRB8)
                    : instructionDirectModify16(&Processor65816::algorithmTRB16); break;
 
-    // --- Branches ---
+    // Branches
     case 0x90: instructionBranch(!flagC()); break;  // BCC
     case 0xB0: instructionBranch( flagC()); break;  // BCS
     case 0xD0: instructionBranch(!flagZ()); break;  // BNE
@@ -2117,24 +2093,24 @@ void Processor65816::instruction() {
     case 0x80: instructionBranch(true);     break;  // BRA
     case 0x82: instructionBranchLong();     break;  // BRL
 
-    // --- Jumps ---
+    // Jumps
     case 0x4C: instructionJumpShort();          break;  // JMP abs
     case 0x5C: instructionJumpLong();           break;  // JML
     case 0x6C: instructionJumpIndirect();       break;  // JMP (abs)
     case 0x7C: instructionJumpIndexedIndirect(); break;  // JMP (abs,X)
     case 0xDC: instructionJumpIndirectLong();   break;  // JML [abs]
 
-    // --- Calls ---
+    // Calls
     case 0x20: instructionCallShort();          break;  // JSR abs
     case 0x22: instructionCallLong();           break;  // JSL
     case 0xFC: instructionCallIndexedIndirect(); break;  // JSR (abs,X)
 
-    // --- Returns ---
+    // Returns
     case 0x40: instructionReturnInterrupt(); break;  // RTI
     case 0x60: instructionReturnShort();     break;  // RTS
     case 0x6B: instructionReturnLong();      break;  // RTL
 
-    // --- Flag operations ---
+    // Flag operations
     case 0x18: instructionClearFlag(FlagC); break;  // CLC
     case 0x38: instructionSetFlag(FlagC);   break;  // SEC
     case 0x58: instructionClearFlag(FlagI); break;  // CLI
@@ -2146,7 +2122,7 @@ void Processor65816::instruction() {
     case 0xE2: instructionSetP();           break;  // SEP
     case 0xFB: instructionExchangeCE();     break;  // XCE
 
-    // --- Transfers ---
+    // Transfers
     case 0xAA: X8 ? instructionTransfer8(r.a, r.x) : instructionTransfer16(r.a, r.x); break;  // TAX
     case 0x8A: M8 ? instructionTransfer8(r.x, r.a) : instructionTransfer16(r.x, r.a); break;  // TXA
     case 0xA8: X8 ? instructionTransfer8(r.a, r.y) : instructionTransfer16(r.a, r.y); break;  // TAY
@@ -2160,7 +2136,7 @@ void Processor65816::instruction() {
     case 0x9A: instructionTransferXS();    break;             // TXS
     case 0xBA: X8 ? instructionTransferSX8() : instructionTransferSX16(); break;  // TSX
 
-    // --- Push ---
+    // Push
     case 0x48: M8 ? instructionPush8(r.a)  : instructionPush16(r.a);  break;  // PHA
     case 0xDA: X8 ? instructionPush8(r.x)  : instructionPush16(r.x);  break;  // PHX
     case 0x5A: X8 ? instructionPush8(r.y)  : instructionPush16(r.y);  break;  // PHY
@@ -2169,7 +2145,7 @@ void Processor65816::instruction() {
     case 0x4B: instructionPush8(r.pb); break;                                   // PHK
     case 0x0B: instructionPushD();     break;                                   // PHD
 
-    // --- Pull ---
+    // Pull
     case 0x68: M8 ? instructionPull8(r.a)  : instructionPull16(r.a);  break;  // PLA
     case 0xFA: X8 ? instructionPull8(r.x)  : instructionPull16(r.x);  break;  // PLX
     case 0x7A: X8 ? instructionPull8(r.y)  : instructionPull16(r.y);  break;  // PLY
@@ -2177,20 +2153,20 @@ void Processor65816::instruction() {
     case 0xAB: instructionPullB();   break;                                     // PLB
     case 0x2B: instructionPullD();   break;                                     // PLD
 
-    // --- Push effective address ---
+    // Push effective address
     case 0xF4: instructionPushEffectiveAddress();          break;  // PEA
     case 0xD4: instructionPushEffectiveIndirectAddress();   break;  // PEI
     case 0x62: instructionPushEffectiveRelativeAddress();   break;  // PER
 
-    // --- Block moves ---
+    // Block moves
     case 0x54: xf() ? instructionBlockMove8(+1)  : instructionBlockMove16(+1);  break;  // MVN
     case 0x44: xf() ? instructionBlockMove8(-1)  : instructionBlockMove16(-1);  break;  // MVP
 
-    // --- Interrupts ---
+    // Interrupts
     case 0x00: instructionInterrupt(r.e ? 0xFFFE : 0xFFE6); break;  // BRK
     case 0x02: instructionInterrupt(r.e ? 0xFFF4 : 0xFFE4); break;  // COP
 
-    // --- Misc ---
+    // Misc
     case 0xEA: instructionNoOperation();  break;  // NOP
     case 0x42: instructionPrefix();       break;  // WDM
     case 0xEB: instructionExchangeBA();   break;  // XBA

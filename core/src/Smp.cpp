@@ -1,11 +1,9 @@
-// ============================================================================
 // Smp.cpp — SNES Sound Module Processor Implementation
 //
 // Provides the SPC700's bus interface: 64KB RAM, IPL ROM overlay,
 // I/O registers ($00F0-$00FF), and bidirectional CPU communication ports.
 //
 // Reference: bsnes sfc/smp/io.cpp, sfc/smp/memory.cpp, sfc/smp/smp.cpp
-// ============================================================================
 
 #include "snes/core/Smp.hpp"
 #include "snes/core/Dsp.hpp"
@@ -26,11 +24,9 @@ bool SmpPortTraceEnabled() {
 }
 }
 
-// ============================================================================
 // IPL boot ROM — 64 bytes loaded at $FFC0-$FFFF when enabled
 // This is the standard SPC700 boot ROM that handles the initial CPU↔APU
 // handshake and data transfer protocol.
-// ============================================================================
 static constexpr uint8_t kIplRom[64] = {
     0xCD, 0xEF, 0xBD, 0xE8, 0x00, 0xC6, 0x1D, 0xD0,
     0xFC, 0x8F, 0xAA, 0xF4, 0x8F, 0xBB, 0xF5, 0x78,
@@ -42,9 +38,7 @@ static constexpr uint8_t kIplRom[64] = {
     0x5D, 0xD0, 0xDB, 0x1F, 0x00, 0x00, 0xC0, 0xFF,
 };
 
-// ============================================================================
 // Timer implementation
-// ============================================================================
 
 template <unsigned Frequency>
 void Smp::Timer<Frequency>::Step(unsigned clocks,
@@ -88,9 +82,7 @@ void Smp::Timer<Frequency>::SynchronizeStage1(bool timersEnable,
 template struct Smp::Timer<128>;
 template struct Smp::Timer<16>;
 
-// ============================================================================
 // Constructor / Power
-// ============================================================================
 
 Smp::Smp() {
     std::memcpy(iplRom_.data(), kIplRom, IplRomSize);
@@ -120,9 +112,7 @@ void Smp::Power() {
     dspClock_ = 0;
 }
 
-// ============================================================================
 // Bus interface — Spc700 overrides
-// ============================================================================
 
 void Smp::Idle() {
     cycles_++;
@@ -161,10 +151,8 @@ void Smp::Write(uint16_t address, uint8_t data) {
     }
 }
 
-// ============================================================================
 // DSP sample clock — called once per bus cycle.
 // Every 32 bus cycles, trigger one DSP sample.
-// ============================================================================
 
 void Smp::tickDsp() {
     if (++dspClock_ >= kDspSampleInterval) {
@@ -173,23 +161,16 @@ void Smp::tickDsp() {
     }
 }
 
-// ============================================================================
 // Batch execution — run until CycleCount() >= targetCycles
-// ============================================================================
 
 void Smp::RunUntil(uint64_t targetCycles) {
-    while (cycles_ < targetCycles && !r.wait && !r.stop) {
+    // Step idles a halted CPU, keeping the timers and DSP on the same clock.
+    while (cycles_ < targetCycles) {
         Step();
-    }
-    // If halted but target not reached, advance cycle count to target
-    if (cycles_ < targetCycles) {
-        cycles_ = targetCycles;
     }
 }
 
-// ============================================================================
 // Timer stepping — advance all three timers by the given clock ticks
-// ============================================================================
 
 void Smp::StepTimers(unsigned clocks) {
     timer0_.Step(clocks, io_.timersEnable, io_.timersDisable);
@@ -197,9 +178,7 @@ void Smp::StepTimers(unsigned clocks) {
     timer2_.Step(clocks, io_.timersEnable, io_.timersDisable);
 }
 
-// ============================================================================
 // CPU-side port access
-// ============================================================================
 
 uint8_t Smp::PortRead(uint8_t port) const {
     // CPU reads $2140+n → returns what SMP wrote to $F4+n
@@ -211,9 +190,7 @@ void Smp::PortWrite(uint8_t port, uint8_t data) {
     apuInput_[port & 3] = data;
 }
 
-// ============================================================================
 // Internal RAM access (with IPL ROM overlay)
-// ============================================================================
 
 uint8_t Smp::readRam(uint16_t address) const {
     // IPL ROM overlay: $FFC0-$FFFF when enabled
@@ -233,9 +210,7 @@ void Smp::writeRam(uint16_t address, uint8_t data) {
     }
 }
 
-// ============================================================================
 // I/O register read ($00F0-$00FF)
-// ============================================================================
 
 uint8_t Smp::readIO(uint16_t address) {
     switch (address) {
@@ -297,9 +272,7 @@ uint8_t Smp::readIO(uint16_t address) {
     }
 }
 
-// ============================================================================
 // I/O register write ($00F0-$00FF)
-// ============================================================================
 
 void Smp::writeIO(uint16_t address, uint8_t data) {
     switch (address) {

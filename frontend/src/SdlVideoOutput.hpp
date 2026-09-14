@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // SdlVideoOutput.hpp — SDL3-based video output for the SNES emulator
 //
 // Creates an SDL window + renderer + streaming texture.  Each call to
@@ -12,7 +11,6 @@
 //
 // SDL3 API (not SDL2) — uses SDL_CreateWindow / SDL_CreateRenderer /
 // SDL_CreateTexture / SDL_UpdateTexture / SDL_RenderTexture.
-// ============================================================================
 
 #include "snes/core/Platform.hpp"
 
@@ -44,9 +42,7 @@ public:
     // IVideoOutput
     void Present(const snes::core::VideoFrame& frame) override;
 
-    // -----------------------------------------------------------------------
     // State queries
-    // -----------------------------------------------------------------------
 
     /// Returns true if Init() succeeded (window + renderer created).
     bool IsValid() const noexcept { return renderer_ != nullptr; }

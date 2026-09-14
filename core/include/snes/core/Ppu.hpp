@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // Ppu.hpp — SNES PPU register model + scanline renderer
 //
 // Covers all PPU I/O registers $2100–$213F and a scanline-based rendering
@@ -18,7 +17,6 @@
 //   Output: 256×224(240) pixels as uint32_t RGBA8888
 //
 // Reference: bsnes sfc/ppu-fast/ppu.hpp, line.cpp, background.cpp, object.cpp
-// ============================================================================
 
 #include <array>
 #include <cstdint>
@@ -28,9 +26,7 @@
 
 namespace snes::core {
 
-// ============================================================================
 // Ppu — PPU register model
-// ============================================================================
 class Ppu {
 public:
     Ppu();
@@ -40,22 +36,16 @@ public:
     Ppu(const Ppu&) = delete;
     Ppu& operator=(const Ppu&) = delete;
 
-    // -----------------------------------------------------------------------
     // Reset — power-on defaults (clear VRAM/OAM/CGRAM, reset latches)
-    // -----------------------------------------------------------------------
     void Reset();
 
-    // -----------------------------------------------------------------------
     // Bus interface — called from MemoryBus via handler callbacks
     //   addr is the full 24-bit address (only $2100-$213F are dispatched here)
     //   openBus is the current bus MDR (for reads of write-only registers)
-    // -----------------------------------------------------------------------
     uint8_t ReadIO(uint32_t addr, uint8_t openBus);
     void    WriteIO(uint32_t addr, uint8_t data);
 
-    // -----------------------------------------------------------------------
     // Scanline / frame hooks (called by the timing layer)
-    // -----------------------------------------------------------------------
 
     /// Called at the start of each frame (V=0).
     void FrameBegin();
@@ -67,9 +57,7 @@ public:
     /// Called at V=vdisp (start of vblank).
     void VBlankBegin();
 
-    // -----------------------------------------------------------------------
     // Display state queries
-    // -----------------------------------------------------------------------
     bool Interlace()    const noexcept { return io_.interlace; }
     bool Overscan()     const noexcept { return io_.overscan; }
     bool FrameOverscan() const noexcept { return frameOverscan_; }
@@ -78,9 +66,7 @@ public:
     uint8_t Brightness() const noexcept { return io_.displayBrightness; }
     bool FieldID()       const noexcept { return fieldId_; }
 
-    // -----------------------------------------------------------------------
     // Counters (for H/V counter latching by CPU I/O $2137, $213C-$213F)
-    // -----------------------------------------------------------------------
 
     /// Latch current H/V counters — called when SLHV ($2137) read or via
     /// programmable I/O pin.  The timing layer provides the actual values.
@@ -105,9 +91,11 @@ public:
     using LatchCallback = std::function<void()>;
     void SetCounterLatchCallback(LatchCallback cb) { onCounterLatch_ = std::move(cb); }
 
-    // -----------------------------------------------------------------------
+    /// Notify timing when SETINI changes the first VBlank scanline.
+    using VDispCallback = std::function<void(uint16_t vdisp)>;
+    void SetVDispCallback(VDispCallback cb) { onVDisp_ = std::move(cb); }
+
     // Direct memory access — for DMA, testing, rendering
-    // -----------------------------------------------------------------------
     uint16_t* VramData() noexcept { return vram_.get(); }
     const uint16_t* VramData() const noexcept { return vram_.get(); }
     static constexpr size_t VramWords = 32768; // 64KB / 2
@@ -120,15 +108,11 @@ public:
     const uint16_t* CgramData() const noexcept { return cgram_.data(); }
     static constexpr size_t CgramColors = 256;
 
-    // -----------------------------------------------------------------------
     // UpdateVideoMode — recalculate tile modes and priority per BG mode.
     // Called after writing BGMODE ($2105) or SETINI ($2133).
-    // -----------------------------------------------------------------------
     void UpdateVideoMode();
 
-    // -----------------------------------------------------------------------
     // PPU I/O register state — public for rendering / test inspection
-    // -----------------------------------------------------------------------
 
     /// Tile depth mode per BG layer (set by UpdateVideoMode)
     enum class TileMode : uint8_t { BPP2, BPP4, BPP8, Mode7, Inactive };
@@ -136,7 +120,7 @@ public:
     /// Source layer IDs for color math / priority
     enum Source : uint8_t { BG1, BG2, BG3, BG4, OBJ1, OBJ2, COL, SourceCount };
 
-    // ----- Window layer enable/invert/mask -----
+    // Window layer enable/invert/mask
     struct WindowLayer {
         bool oneEnable  = false;
         bool oneInvert  = false;
@@ -157,7 +141,7 @@ public:
         uint8_t belowMask = 0; // 2 bits
     };
 
-    // ----- Per-background state -----
+    // Per-background state
     struct Background {
         WindowLayer window;
         bool aboveEnable    = false;
@@ -173,7 +157,7 @@ public:
         uint8_t  priority[2]     = {0, 0};
     };
 
-    // ----- Sprite / OBJ state -----
+    // Sprite / OBJ state
     struct ObjectIO {
         WindowLayer window;
         bool aboveEnable    = false;
@@ -188,7 +172,7 @@ public:
         uint8_t priority[4]  = {0, 0, 0, 0};
     };
 
-    // ----- Color math state -----
+    // Color math state
     struct ColorIO {
         WindowColor window;
         bool enable[SourceCount] = {};
@@ -199,13 +183,13 @@ public:
         uint16_t fixedColor = 0;  // 15-bit BGR555
     };
 
-    // ----- Mosaic -----
+    // Mosaic
     struct Mosaic {
         uint8_t size    = 1;  // 1–16
         uint8_t counter = 0;
     };
 
-    // ----- Mode 7 -----
+    // Mode 7
     struct Mode7 {
         bool hflip      = false;
         bool vflip      = false;
@@ -216,7 +200,7 @@ public:
         uint16_t voffset = 0;
     };
 
-    // ----- Window position -----
+    // Window position
     struct WindowPos {
         uint8_t oneLeft   = 0;
         uint8_t oneRight  = 0;
@@ -224,7 +208,7 @@ public:
         uint8_t twoRight  = 0;
     };
 
-    // ----- Aggregate IO structure -----
+    // Aggregate IO structure
     struct IO {
         // $2100 INIDISP
         bool displayDisable     = true;
@@ -249,7 +233,8 @@ public:
 
         // $2121 CGRAM address
         uint8_t cgramAddress    = 0;
-        bool cgramAddressLatch  = false;
+        bool cgramReadLatch     = false;
+        bool cgramWriteLatch    = false;
 
         // $2133 SETINI
         bool interlace          = false;
@@ -274,9 +259,7 @@ public:
     IO&       GetIO() noexcept { return io_; }
     const IO& GetIO() const noexcept { return io_; }
 
-    // -----------------------------------------------------------------------
     // Latch state — internal buffers for write-twice behavior, etc.
-    // -----------------------------------------------------------------------
     struct Latch {
         uint16_t vram        = 0;   // VRAM prefetch latch (16-bit)
         uint8_t  oam         = 0;   // OAM write latch (low byte)
@@ -297,9 +280,7 @@ public:
     Latch&       GetLatch() noexcept { return latch_; }
     const Latch& GetLatch() const noexcept { return latch_; }
 
-    // -----------------------------------------------------------------------
     // Rendering — pixel format and line buffers
-    // -----------------------------------------------------------------------
 
     /// A single rendered pixel in the above/below line buffers.
     struct Pixel {
@@ -362,9 +343,7 @@ public:
     static constexpr uint8_t kObjLargeWidth [8] = {16, 32, 64, 32, 64, 64, 32, 32};
     static constexpr uint8_t kObjLargeHeight[8] = {16, 32, 64, 32, 64, 64, 64, 32};
 
-    // -----------------------------------------------------------------------
     // Rendering API
-    // -----------------------------------------------------------------------
 
     /// Render all cached scanlines (call at VBlank).  Writes to the output
     /// framebuffer.
@@ -388,9 +367,7 @@ public:
     int CachedLineCount() const noexcept { return lineCount_; }
 
 private:
-    // -----------------------------------------------------------------------
     // Internal VRAM / OAM / CGRAM helpers
-    // -----------------------------------------------------------------------
 
     /// VRAM address with translation mapping applied
     uint16_t TranslatedVramAddress() const;
@@ -419,9 +396,7 @@ private:
     /// Set first sprite for priority rotation
     void OamSetFirstObject();
 
-    // -----------------------------------------------------------------------
     // Scanline rendering internals
-    // -----------------------------------------------------------------------
 
     /// Render a single cached scanline.
     void RenderLine(Line& line);
@@ -470,9 +445,7 @@ private:
     /// Build the brightness lookup table.
     void BuildLightTable();
 
-    // -----------------------------------------------------------------------
     // State
-    // -----------------------------------------------------------------------
     IO    io_;
     Latch latch_;
 
@@ -514,6 +487,7 @@ private:
 
     // Callback for $2137 SLHV reads (triggers counter latch via Emulator)
     LatchCallback onCounterLatch_;
+    VDispCallback onVDisp_;
 
     // Interlace field ID (toggled each frame)
     bool fieldId_ = false;

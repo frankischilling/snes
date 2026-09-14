@@ -1,14 +1,11 @@
 #pragma once
-// ============================================================================
 // Dsp1.hpp — DSP-1 (uPD77C25) coprocessor HLE
 //
 // High-level emulation of the DSP-1 math coprocessor used in SNES games
 // like Super Mario Kart. Ported from bsnes's dsp1emu (by Overload, The
 // Dumper, Neviksti, Andreas Naive).
 //
-// Memory-mapped at banks $00-$1F,$80-$9F : $6000-$7FFF.
-// Even addresses → Data Register (DR), Odd addresses → Status Register (SR).
-// ============================================================================
+// The cartridge board selects the data and status address windows.
 
 #include <cstdint>
 #include <cstring>
@@ -21,7 +18,7 @@ public:
 
     Dsp1();
 
-    uint8_t GetSr();
+    uint8_t GetSr() const;
     uint8_t GetDr();
     void    SetDr(uint8_t value);
     void    Reset();
@@ -63,7 +60,6 @@ private:
     } shared_;
 
     uint8_t  sr_;
-    int      srLowByteAccess_;
     uint16_t dr_;
     unsigned fsmMajorState_;
     uint8_t  command_;

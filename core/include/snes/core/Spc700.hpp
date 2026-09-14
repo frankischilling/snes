@@ -1,11 +1,9 @@
-// ============================================================================
 // Spc700.hpp — Sony SPC700 Audio Processor Core
 //
 // Pure processor implementation with virtual bus interface.
 // The SNES SMP wrapper (future) will inherit this and provide the bus.
 //
 // Reference: bsnes processor/spc700/spc700.hpp
-// ============================================================================
 
 #pragma once
 
@@ -19,18 +17,14 @@ public:
     Spc700();
     virtual ~Spc700() = default;
 
-    // ========================================================================
     // Virtual bus interface — override in SMP wrapper
-    // ========================================================================
     virtual void    Idle()                          = 0;
     virtual uint8_t Read(uint16_t address)          = 0;
     virtual void    Write(uint16_t address, uint8_t data) = 0;
 
-    // ========================================================================
     // PSW (Processor Status Word) — bit layout:
     //   7  6  5  4  3  2  1  0
     //   N  V  P  B  H  I  Z  C
-    // ========================================================================
     struct Flags {
         bool c = false;  // bit 0 — Carry
         bool z = false;  // bit 1 — Zero
@@ -62,9 +56,7 @@ public:
         }
     };
 
-    // ========================================================================
     // Registers
-    // ========================================================================
     struct Registers {
         uint16_t pc = 0;
         uint8_t  a  = 0;   // Accumulator  (low byte of YA)
@@ -88,9 +80,7 @@ public:
 
     Registers r;
 
-    // ========================================================================
     // Execution
-    // ========================================================================
     void Power();             // Reset to power-on state
     void Step();              // Execute one instruction
     uint64_t CycleCount() const { return cycles_; }
@@ -98,18 +88,14 @@ public:
 protected:
     uint64_t cycles_ = 0;    // Total cycles consumed
 
-    // ========================================================================
     // Memory access helpers
-    // ========================================================================
     uint8_t Fetch();                              // read(PC++)
     uint8_t Load(uint8_t addr);                   // read(dp | addr)
     void    Store(uint8_t addr, uint8_t data);    // write(dp | addr, data)
     uint8_t Pull();                               // read(0x100 | ++S)
     void    Push(uint8_t data);                    // write(0x100 | S--, data)
 
-    // ========================================================================
     // ALU algorithms — 8-bit
-    // ========================================================================
     uint8_t AlgADC(uint8_t x, uint8_t y);
     uint8_t AlgSBC(uint8_t x, uint8_t y);
     uint8_t AlgAND(uint8_t x, uint8_t y);
@@ -130,16 +116,14 @@ protected:
     uint16_t AlgCPW(uint16_t x, uint16_t y);
     uint16_t AlgLDW(uint16_t x, uint16_t y);
 
-    // ========================================================================
     // Instruction implementations
-    // ========================================================================
 
     // ALU function pointer type for parameterized instructions
     using AlgOp = uint8_t (Spc700::*)(uint8_t, uint8_t);
     using ModOp = uint8_t (Spc700::*)(uint8_t);
     using AlgOp16 = uint16_t (Spc700::*)(uint16_t, uint16_t);
 
-    // --- Addressing mode instruction groups ---
+    // Addressing mode instruction groups
     void InstrImmediateRead(AlgOp op, uint8_t& target);
     void InstrDirectRead(AlgOp op, uint8_t& target);
     void InstrDirectModify(ModOp op);
@@ -163,7 +147,7 @@ protected:
     void InstrIndirectXCompareIndirectY(AlgOp op);
     void InstrIndirectXWriteIndirectY(AlgOp op);
 
-    // --- Direct-Direct, Direct-Immediate ---
+    // Direct-Direct, Direct-Immediate
     void InstrDirectDirectCompare(AlgOp op);
     void InstrDirectDirectModify(AlgOp op);
     void InstrDirectDirectWrite();
@@ -171,18 +155,18 @@ protected:
     void InstrDirectImmediateModify(AlgOp op);
     void InstrDirectImmediateWrite();
 
-    // --- 16-bit word operations ---
+    // 16-bit word operations
     void InstrDirectCompareWord(AlgOp16 op);
     void InstrDirectReadWord(AlgOp16 op);
     void InstrDirectModifyWord(int16_t adjust);
     void InstrDirectWriteWord();
 
-    // --- Bit operations ---
+    // Bit operations
     void InstrAbsoluteBitModify(uint8_t mode);
     void InstrAbsoluteBitSet(uint8_t bit, bool value);
     void InstrTestSetBitsAbsolute(bool set);
 
-    // --- Branches ---
+    // Branches
     void InstrBranch(bool take);
     void InstrBranchBit(uint8_t bit, bool match);
     void InstrBranchNotDirect();
@@ -190,7 +174,7 @@ protected:
     void InstrBranchNotDirectDecrement();
     void InstrBranchNotYDecrement();
 
-    // --- Flow control ---
+    // Flow control
     void InstrCallAbsolute();
     void InstrCallPage();
     void InstrCallTable(uint8_t vector);
@@ -200,24 +184,24 @@ protected:
     void InstrReturnInterrupt();
     void InstrBreak();
 
-    // --- Register transfer ---
+    // Register transfer
     void InstrTransfer(uint8_t from, uint8_t& to);
 
-    // --- Push/Pull ---
+    // Push/Pull
     void InstrPush(uint8_t data);
     void InstrPull(uint8_t& target);
     void InstrPushP();
     void InstrPullP();
 
-    // --- Flag manipulation ---
+    // Flag manipulation
     void InstrFlagSet(bool& flag, bool value);
     void InstrOverflowClear();
     void InstrComplementCarry();
 
-    // --- Implied register ops ---
+    // Implied register ops
     void InstrImpliedModify(ModOp op, uint8_t& target);
 
-    // --- Special instructions ---
+    // Special instructions
     void InstrMultiply();
     void InstrDivide();
     void InstrDecimalAdjustAdd();

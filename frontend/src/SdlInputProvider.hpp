@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // SdlInputProvider.hpp — SDL3-based keyboard input for the SNES emulator
 //
 // Reads the SDL keyboard state array each frame and maps scancodes to
@@ -12,7 +11,6 @@
 //   Start    → Enter      Select → Right Shift
 //
 // Call SDL_PumpEvents() before Poll() so the keyboard state is current.
-// ============================================================================
 
 #include "snes/core/Platform.hpp"
 

@@ -1,4 +1,3 @@
-// ============================================================================
 // Ppu.cpp — SNES PPU register model implementation
 //
 // Implements all PPU registers $2100–$213F following bsnes ppu-fast/io.cpp.
@@ -6,7 +5,6 @@
 // access.  Rendering pipeline is in PpuRender.cpp.
 //
 // Reference: bsnes sfc/ppu-fast/io.cpp, ppu-fast/ppu.cpp
-// ============================================================================
 
 #include "snes/core/Ppu.hpp"
 #include <algorithm>
@@ -30,9 +28,7 @@ bool PpuDebugEnabled() {
 }
 }
 
-// ============================================================================
 // Constructor / Reset
-// ============================================================================
 Ppu::Ppu()
     : vram_(std::make_unique<uint16_t[]>(VramWords))
     , lines_(std::make_unique<Line[]>(MaxVisibleLines))
@@ -68,9 +64,7 @@ void Ppu::Reset() {
     UpdateVideoMode();
 }
 
-// ============================================================================
 // Frame / scanline hooks
-// ============================================================================
 void Ppu::FrameBegin() {
     // Toggle interlace field each frame
     fieldId_ = !fieldId_;
@@ -121,9 +115,7 @@ void Ppu::VBlankBegin() {
     RenderFrame();
 }
 
-// ============================================================================
 // VRAM helpers
-// ============================================================================
 
 uint16_t Ppu::TranslatedVramAddress() const {
     uint16_t address = io_.vramAddress;
@@ -157,9 +149,7 @@ void Ppu::WriteVram(bool highByte, uint8_t data) {
     }
 }
 
-// ============================================================================
 // OAM helpers
-// ============================================================================
 
 uint8_t Ppu::ReadOam(uint16_t address) {
     address &= 0x03FF;
@@ -167,8 +157,8 @@ uint8_t Ppu::ReadOam(uint16_t address) {
     if (!io_.displayDisable && currentLine_ > 0 && currentLine_ < VDisp()) {
         address = latch_.oamAddress & 0x03FF;
     }
-    if (address < OamSize) return oam_[address];
-    return 0;
+    if (address & 0x200) address &= 0x21F;
+    return oam_[address];
 }
 
 void Ppu::WriteOam(uint16_t address, uint8_t data) {
@@ -177,9 +167,8 @@ void Ppu::WriteOam(uint16_t address, uint8_t data) {
     if (!io_.displayDisable && currentLine_ > 0 && currentLine_ < VDisp()) {
         address = 0x0218;
     }
-    if (address < OamSize) {
-        oam_[address] = data;
-    }
+    if (address & 0x200) address &= 0x21F;
+    oam_[address] = data;
 }
 
 void Ppu::OamAddressReset() {
@@ -194,9 +183,7 @@ void Ppu::OamSetFirstObject() {
     }
 }
 
-// ============================================================================
 // CGRAM helpers
-// ============================================================================
 
 uint8_t Ppu::ReadCgram(bool highByte, uint8_t address) {
     // During active rendering (display enabled, visible scanline, in active dots),
@@ -222,9 +209,7 @@ void Ppu::WriteCgram(uint8_t address, uint16_t data) {
     cgram_[address] = data & 0x7FFF; // 15-bit color
 }
 
-// ============================================================================
 // Counter latching
-// ============================================================================
 
 void Ppu::LatchCounters(uint16_t hcounter, uint16_t vcounter) {
     io_.hcounter = hcounter;
@@ -232,11 +217,9 @@ void Ppu::LatchCounters(uint16_t hcounter, uint16_t vcounter) {
     latch_.counters = true;
 }
 
-// ============================================================================
 // ReadIO — read PPU register ($2134–$213F, plus open-bus for write-only)
 //
 // Reference: bsnes ppu-fast/io.cpp readIO()
-// ============================================================================
 uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
     switch (addr & 0xFFFF) {
 
@@ -311,11 +294,11 @@ uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
 
     // $213B — CGDATAREAD
     case 0x213B: {
-        if (!io_.cgramAddressLatch) {
-            io_.cgramAddressLatch = true;
+        if (!io_.cgramReadLatch) {
+            io_.cgramReadLatch = true;
             latch_.ppu2.mdr = ReadCgram(false, io_.cgramAddress);
         } else {
-            io_.cgramAddressLatch = false;
+            io_.cgramReadLatch = false;
             latch_.ppu2.mdr = (ReadCgram(true, io_.cgramAddress) & 0x7F) |
                               (latch_.ppu2.mdr & 0x80);
             io_.cgramAddress++;
@@ -387,11 +370,9 @@ uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
     return openBus;
 }
 
-// ============================================================================
 // WriteIO — write PPU register ($2100–$2133)
 //
 // Reference: bsnes ppu-fast/io.cpp writeIO()
-// ============================================================================
 void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     switch (addr & 0xFFFF) {
 
@@ -749,17 +730,18 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     // $2121 — CGADD (CGRAM address)
     case 0x2121: {
         io_.cgramAddress = data;
-        io_.cgramAddressLatch = false;
+        io_.cgramReadLatch = false;
+        io_.cgramWriteLatch = false;
         return;
     }
 
     // $2122 — CGDATA (CGRAM data write)
     case 0x2122: {
-        if (!io_.cgramAddressLatch) {
-            io_.cgramAddressLatch = true;
+        if (!io_.cgramWriteLatch) {
+            io_.cgramWriteLatch = true;
             latch_.cgram = data;
         } else {
-            io_.cgramAddressLatch = false;
+            io_.cgramWriteLatch = false;
             WriteCgram(io_.cgramAddress,
                        static_cast<uint16_t>(data & 0x7F) << 8 | latch_.cgram);
             io_.cgramAddress++;
@@ -936,6 +918,7 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
         io_.pseudoHires   = (data >> 3) & 1;
         io_.extbg         = (data >> 6) & 1;
         UpdateVideoMode();
+        if (onVDisp_) onVDisp_(VDisp());
         if (PpuDebugEnabled() && (oldInterlace != io_.interlace
             || oldObjInterlace != io_.obj.interlace
             || oldOverscan != io_.overscan
@@ -954,11 +937,9 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     } // switch
 }
 
-// ============================================================================
 // UpdateVideoMode — set tile modes + priority per BG mode
 //
 // Reference: bsnes ppu-fast/io.cpp updateVideoMode()
-// ============================================================================
 void Ppu::UpdateVideoMode() {
     auto assign2 = [](uint8_t (&arr)[2], uint8_t a, uint8_t b) { arr[0] = a; arr[1] = b; };
     auto assign4 = [](uint8_t (&arr)[4], uint8_t a, uint8_t b, uint8_t c, uint8_t d) {

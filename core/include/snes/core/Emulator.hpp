@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // Emulator.hpp — Top-level SNES system integration
 //
 // Owns every hardware subsystem and wires them together:
@@ -12,7 +11,6 @@
 // StepFrame() runs one complete video frame (262 scanlines NTSC) by
 // executing CPU instructions, ticking the timing subsystem, synchronising
 // the SMP, and dispatching NMI/IRQ.
-// ============================================================================
 
 #include "snes/core/Platform.hpp"
 #include "snes/core/Cartridge.hpp"
@@ -84,9 +82,7 @@ public:
     uint64_t CurrentFrame() const noexcept;
     uint64_t CurrentMasterCycles() const noexcept;
 
-    // -----------------------------------------------------------------------
     // Subsystem accessors (for testing / debugging)
-    // -----------------------------------------------------------------------
     Ppu&            GetPpu()      noexcept { return ppu_; }
     Smp&            GetSmp()      noexcept { return smp_; }
     Dsp&            GetDsp()      noexcept { return dsp_; }
@@ -120,9 +116,7 @@ private:
     CartridgeDatabase cartridgeDatabase_{};
     std::optional<Cartridge> cartridge_{};
 
-    // -----------------------------------------------------------------------
     // Hardware subsystems (construction order matters — bus_ before cpu_)
-    // -----------------------------------------------------------------------
     Dsp             dsp_;
     Smp             smp_;
     Ppu             ppu_;
@@ -143,10 +137,8 @@ private:
     // Set inside Timing callbacks; drained after each CPU Step().
     uint32_t pendingExtraClocks_ = 0;
 
-    // -----------------------------------------------------------------------
     // Serial joypad state (manual $4016/$4017 reads)
     // Mirrors bsnes's Gamepad struct: latch flag, shift counter, latched bits
-    // -----------------------------------------------------------------------
     struct SerialJoypad {
         bool     latched  = false;   ///< Current latch line state
         uint32_t counter  = 0;       ///< Bit position (0-15, then 16+ = return 1)

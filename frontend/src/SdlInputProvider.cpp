@@ -1,6 +1,4 @@
-// ============================================================================
 // SdlInputProvider.cpp — SDL3-based keyboard input implementation
-// ============================================================================
 
 #include "SdlInputProvider.hpp"
 
