@@ -1,4 +1,9 @@
+// snes emulator
+// tests/test_save_ram.cpp
+// Regression coverage for battery RAM and clock persistence.
+
 #include "SaveRamFile.hpp"
+#include "snes/core/Srtc.hpp"
 #include <SDL3/SDL.h>
 #include <cstdio>
 #include <chrono>
@@ -37,6 +42,23 @@ int main() {
         try { SaveRamFile(path).Load(1024); } catch (const std::runtime_error&) { rejected = true; }
         check(rejected, "Reject a save with the wrong size");
         check(SaveRamFile(path).Load(data.size()) == data, "Rejecting a save preserves its contents");
+        int64_t now = 1700000000;
+        snes::core::Srtc clock([&] { return now; });
+        clock.Write(14); clock.Write(0);
+        for (uint8_t digit : {9, 5, 9, 5, 3, 2, 1, 3, 12, 3, 2, 10}) clock.Write(digit);
+        const auto rtcPath = directory / "game.rtc";
+        const auto rtcData = clock.Save();
+        SaveRamFile(rtcPath).Flush(rtcData);
+        ++now;
+        snes::core::Srtc resumed([&] { return now; });
+        check(resumed.Load(SaveRamFile(rtcPath).Load(snes::core::Srtc::SaveSize)), "Clock sidecar reload");
+        resumed.Write(13);
+        check(resumed.Read() == 15 && resumed.Read() == 0, "Clock advances across file reload");
+        const std::vector<uint8_t> slotA(0x4000, 0x57), slotB(0x4000, 0x63);
+        SaveRamFile(directory / "slot-a.srm").Flush(slotA);
+        SaveRamFile(directory / "slot-b.srm").Flush(slotB);
+        check(SaveRamFile(directory / "slot-a.srm").Load(0x4000) == slotA &&
+              SaveRamFile(directory / "slot-b.srm").Load(0x4000) == slotB, "Slot save files remain independent");
         const auto blocked = directory / "directory.srm";
         fs::create_directory(blocked);
         std::ofstream(blocked / "keep.txt") << "preserve";

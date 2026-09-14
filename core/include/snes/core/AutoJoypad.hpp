@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/AutoJoypad.hpp
+// Automatic controller polling interface.
+
 #pragma once
 // AutoJoypad.hpp — SNES auto-joypad polling state machine
 //

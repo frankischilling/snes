@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/system/Logging.cpp
+// Thread-safe logging and diagnostic output.
+
 #include "snes/core/Logging.hpp"
 
 #include <iostream>

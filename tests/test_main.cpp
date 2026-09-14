@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_main.cpp
+// Core integration and baseline emulator checks.
+
 #include "snes/core/Emulator.hpp"
 #include "snes/core/Cartridge.hpp"
 #include "snes/core/Cpu65816.hpp"
@@ -118,7 +122,7 @@ int main() {
         cartridge->SetMemselFast(false);
         assert(cartridge->AccessCycles(0xC08000) == 8);
         cartridge->SetMemselFast(true);
-        assert(cartridge->AccessCycles(0xC08000) == 8);
+        assert(cartridge->AccessCycles(0xC08000) == 6);
     }
 
     {

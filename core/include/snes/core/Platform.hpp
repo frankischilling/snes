@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Platform.hpp
+// Platform-facing video, audio, and input contracts.
+
 #pragma once
 
 #include <cstdint>

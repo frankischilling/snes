@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/CpuIoRegisters.hpp
+// CPU I/O register interface.
+
 #pragma once
 // CpuIoRegisters.hpp — SNES CPU I/O register state ($4200-$421F, $4016-$4017)
 //

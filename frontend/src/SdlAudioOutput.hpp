@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SdlAudioOutput.hpp
+// SDL audio output interface.
+
 #pragma once
 // SdlAudioOutput.hpp — SDL3-based audio output for the SNES emulator
 //

@@ -37,4 +37,6 @@ The arguments are ROM path, frame count, optional output path, and optional Star
 
 ## Remaining work
 
-Complete enhancement-chip and accessory support remains unfinished. Major gaps include SA-1, Super FX, DSP-2/3/4, S-DD1, SPC7110, Cx4, cartridge clocks, Sufami Turbo, Satellaview, and MSU-1. These need their own processors, register models, data paths, or peripheral behavior in addition to address mapping. Save states and rewind also remain unimplemented. The cartridge changes above do not add those features.
+[Cartridge devices and region timing](cartridge-devices.md) covers DSP-2, OBC1, S-RTC, Sufami Turbo loading and saves, PAL timing, and loader regression tests.
+
+SA-1, Super FX, DSP-3/4, S-DD1, SPC7110 and its RTC, Cx4, ST010/011/018, Satellaview, and MSU-1 remain unimplemented. These need processors, register models, data paths, or peripheral behavior in addition to address mapping. Accessory input, save states, and rewind also remain unfinished.

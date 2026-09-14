@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/system/Emulator.cpp
+// Top-level subsystem wiring, cartridge loading, and frame execution.
+
 // Emulator.cpp — SNES system integration and frame loop
 
 #include "snes/core/Emulator.hpp"
@@ -12,25 +16,30 @@
 namespace snes::core {
 
 namespace {
-std::optional<const char*> UnsupportedChipName(uint8_t cartType) {
-    switch (cartType) {
-    case 0x13:
-    case 0x14:
-    case 0x15:
-    case 0x1A:
-        return "Super FX";
-    case 0x34:
-    case 0x35:
-        return "SA-1";
-    case 0x43:
-    case 0x45:
-        return "S-DD1";
-    case 0x55:
-        return "S-RTC";
-    case 0xF3:
-        return "Cx4";
-    default:
+std::optional<std::vector<uint8_t>> ReadImage(const std::string& path, std::string* error) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        if (error) *error = "Unable to open ROM file: " + path;
         return std::nullopt;
+    }
+    std::vector<uint8_t> data((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    if (file.bad() || data.empty()) {
+        if (error) *error = "ROM file is empty or unreadable: " + path;
+        return std::nullopt;
+    }
+    return data;
+}
+
+std::optional<const char*> UnsupportedChipName(EnhancementChip chip) {
+    switch (chip) {
+    case EnhancementChip::None:
+    case EnhancementChip::Dsp1:
+    case EnhancementChip::Dsp2:
+    case EnhancementChip::Obc1:
+    case EnhancementChip::Srtc:
+        return std::nullopt;
+    default:
+        return ChipName(chip);
     }
 }
 }
@@ -79,29 +88,26 @@ bool Emulator::LoadCartridge(std::span<const uint8_t> romData, std::string* erro
         return false;
     }
 
-    cartridge_ = std::move(*cartridge);
+    if (auto unsupported = UnsupportedChipName(cartridge->Header().chip);
+        unsupported.has_value()) {
+        if (error != nullptr) {
+            *error = std::string("Unsupported enhancement chip: ") + *unsupported
+                   + " (cartridge type $"
+                   + "0123456789ABCDEF"[(cartridge->Header().cartridgeType >> 4) & 0x0F]
+                   + "0123456789ABCDEF"[(cartridge->Header().cartridgeType >> 0) & 0x0F]
+                   + ")";
+        }
+        Logger::Instance().Write(LogLevel::Error,
+                                 "Unsupported cartridge enhancement chip detected");
+        return false;
+    }
 
+    cartridge_ = std::move(*cartridge);
     Logger::Instance().Write(
         LogLevel::Info,
         "Cartridge loaded: " + cartridge_->Header().title +
             (normalization.hadCopierHeader ? " [copier-header-normalized]" : "") +
             (normalization.hadInterleave ? " [deinterleaved]" : ""));
-
-    if (auto unsupported = UnsupportedChipName(cartridge_->Header().cartridgeType);
-        unsupported.has_value()) {
-        if (error != nullptr) {
-            *error = std::string("Unsupported enhancement chip: ") + *unsupported
-                   + " (cartridge type $"
-                   + "0123456789ABCDEF"[(cartridge_->Header().cartridgeType >> 4) & 0x0F]
-                   + "0123456789ABCDEF"[(cartridge_->Header().cartridgeType >> 0) & 0x0F]
-                   + ")";
-        }
-        Logger::Instance().Write(LogLevel::Error,
-                                 "Unsupported cartridge enhancement chip detected");
-        cartridge_.reset();
-        initialized_ = false;
-        return false;
-    }
 
     // Wire all subsystems now that we have a cartridge
     InitSubsystems();
@@ -109,27 +115,33 @@ bool Emulator::LoadCartridge(std::span<const uint8_t> romData, std::string* erro
     return true;
 }
 
+bool Emulator::LoadSufamiTurbo(std::span<const uint8_t> bios, std::span<const uint8_t> slotA,
+                             std::span<const uint8_t> slotB, std::string* error) {
+    auto cartridge = Cartridge::FromSufamiTurbo(bios, slotA, slotB, error);
+    if (!cartridge) return false;
+    cartridge_ = std::move(*cartridge);
+    InitSubsystems();
+    return true;
+}
+
 bool Emulator::LoadCartridgeFromFile(const std::string& path, std::string* error) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        if (error != nullptr) {
-            *error = "Unable to open ROM file: " + path;
-        }
-        return false;
+    const auto data = ReadImage(path, error);
+    return data && LoadCartridge(*data, error);
+}
+
+bool Emulator::LoadSufamiTurboFromFiles(const std::string& biosPath, const std::string& slotAPath,
+                                      const std::string& slotBPath, std::string* error) {
+    const auto bios = ReadImage(biosPath, error);
+    if (!bios) return false;
+    std::array<std::vector<uint8_t>, 2> slots;
+    const std::array paths{slotAPath, slotBPath};
+    for (unsigned i = 0; i < 2; ++i) {
+        if (paths[i].empty() || paths[i] == "-") continue;
+        auto image = ReadImage(paths[i], error);
+        if (!image) return false;
+        slots[i] = std::move(*image);
     }
-
-    const std::vector<uint8_t> data(
-        (std::istreambuf_iterator<char>(file)),
-        std::istreambuf_iterator<char>());
-
-    if (data.empty()) {
-        if (error != nullptr) {
-            *error = "ROM file is empty: " + path;
-        }
-        return false;
-    }
-
-    return LoadCartridge(data, error);
+    return LoadSufamiTurbo(*bios, slots[0], slots[1], error);
 }
 
 const Cartridge* Emulator::LoadedCartridge() const noexcept {
@@ -155,8 +167,11 @@ void Emulator::InitSubsystems() {
 
     // Map the DSP-1 data and status windows for the cartridge board.
     dsp1_.reset();
-    uint8_t cartType = cartridge_->Header().cartridgeType;
-    if (cartType == 0x03 || cartType == 0x05) {
+    dsp2_.reset();
+    obc1_.reset();
+    srtc_.reset();
+    const auto chip = cartridge_->Header().chip;
+    if (chip == EnhancementChip::Dsp1) {
         dsp1_ = std::make_unique<Dsp1>();
         auto* dsp1ptr = dsp1_.get();
         const bool loRom = cartridge_->Header().mapping == MappingType::LoRom;
@@ -176,6 +191,36 @@ void Emulator::InitSubsystems() {
         uint8_t slot = bus_.RegisterHandler(dsp1Read, dsp1Write);
         bus_.MapRange(bankLo, bankHi, addrLo, addrHi, slot);
         bus_.MapRange(bankLo | 0x80, bankHi | 0x80, addrLo, addrHi, slot);
+    }
+
+    if (chip == EnhancementChip::Dsp2) {
+        dsp2_ = std::make_unique<Dsp2>();
+        const auto slot = bus_.RegisterHandler(
+            [this](uint32_t, uint8_t) { return dsp2_->Read(); },
+            [this](uint32_t, uint8_t data) { dsp2_->Write(data); });
+        for (uint8_t bank : {0x20, 0xa0}) {
+            bus_.MapRange(bank, bank + 0x1f, 0x6000, 0x6fff, slot);
+            bus_.MapRange(bank, bank + 0x1f, 0x8000, 0xbfff, slot);
+        }
+    }
+    if (chip == EnhancementChip::Obc1) {
+        obc1_ = std::make_unique<Obc1>();
+        const auto slot = bus_.RegisterHandler(
+            [this](uint32_t address, uint8_t) { return obc1_->Read(static_cast<uint16_t>(address)); },
+            [this](uint32_t address, uint8_t data) { obc1_->Write(static_cast<uint16_t>(address), data); });
+        bus_.MapRange(0x00, 0x3f, 0x6000, 0x7fff, slot);
+        bus_.MapRange(0x80, 0xbf, 0x6000, 0x7fff, slot);
+    }
+
+    if (chip == EnhancementChip::Srtc) {
+        srtc_ = std::make_unique<Srtc>();
+        const auto slot = bus_.RegisterHandler(
+            [this](uint32_t address, uint8_t openBus) {
+                return (address & 1) ? openBus : srtc_->Read();
+            },
+            [this](uint32_t address, uint8_t data) { if (address & 1) srtc_->Write(data); });
+        bus_.MapRange(0x00, 0x3f, 0x2800, 0x2801, slot);
+        bus_.MapRange(0x80, 0xbf, 0x2800, 0x2801, slot);
     }
 
     // 3. Create the 65816 CPU (needs bus_ reference)
@@ -408,6 +453,14 @@ void Emulator::InitSubsystems() {
     autoJoypad_.Reset();
     timing_.Reset();
 
+    const auto country = cartridge_->Header().country;
+    const bool pal = (country >= 2 && country <= 12) || country == 18;
+    timing_.SetRegion(pal ? Region::PAL : Region::NTSC);
+    ppu_.SetPal(pal);
+    frameIndex_ = 0;
+    masterCycles_ = 0;
+    pendingExtraClocks_ = 0;
+
     // Reset serial joypad state
     for (auto& pad : serialPad_) {
         pad = SerialJoypad{};
@@ -518,7 +571,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         //    SMP target = elapsed × (1,024,000 / 21,477,272)
         const uint64_t elapsed   = timing_.MasterClocksElapsed();
         const uint64_t smpTarget = elapsed * Smp::kClockFrequency
-                                   / Timing::kMasterClockHz;
+                                   / timing_.MasterClockHz();
         smp_.RunUntil(smpTarget);
 
         // 5. NMI / IRQ dispatch (matches bsnes lastCycle() logic)

@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Trace.hpp
+// CPU, PPU, and DMA trace event types.
+
 #pragma once
 
 #include <cstdint>

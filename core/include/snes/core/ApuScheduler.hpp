@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/ApuScheduler.hpp
+// CPU and APU clock synchronization.
+
 // ApuScheduler.hpp — CPU ↔ APU synchronization (single-threaded)
 //
 // Converts CPU master clock cycles to SPC700 (SMP) cycles using a

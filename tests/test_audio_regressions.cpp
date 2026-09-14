@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_audio_regressions.cpp
+// Regression coverage for DSP and SMP audio behavior.
+
 #include "snes/core/Dsp.hpp"
 #include "snes/core/Smp.hpp"
 

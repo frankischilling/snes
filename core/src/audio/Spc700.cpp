@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/audio/Spc700.cpp
+// The SPC700 instruction core and audio processor state.
+
 // Spc700.cpp — Sony SPC700 Audio Processor Core Implementation
 //
 // All 256 opcodes, ALU algorithms, and addressing mode instruction helpers.

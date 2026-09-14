@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/cpu/SnesCpu.cpp
+// The SNES CPU wrapper and interrupt integration.
+
 // SnesCpu.cpp — SNES-specific CPU wrapper implementation
 //
 // Implements the Processor65816 virtual bus interface with SNES timing,

@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/dma/Dma.cpp
+// General DMA and HDMA channel state and transfers.
+
 // Dma.cpp — SNES DMA controller register I/O + GP-DMA transfer engine
 //
 // Register read/write follows bsnes:

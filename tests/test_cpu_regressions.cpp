@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_cpu_regressions.cpp
+// Regression coverage for CPU instructions, interrupts, and stops.
+
 #include "snes/core/SnesCpu.hpp"
 #include <array>
 #include <cstdio>

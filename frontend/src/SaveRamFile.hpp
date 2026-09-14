@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SaveRamFile.hpp
+// Save-file persistence interface.
+
 #pragma once
 #include <cstdint>
 #include <filesystem>

@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/main.cpp
+// SDL frontend entry point and save-file lifecycle.
+
 // main.cpp — SNES emulator SDL3 frontend
 //
 // Usage:  snes_frontend <rom_file.smc>
@@ -18,14 +22,20 @@
 #include <iostream>
 #include <memory>
 #include <string>
+#include <string_view>
+#include <array>
+#include <stdexcept>
 
 int main(int argc, char* argv[]) {
     // 1. Parse command-line arguments
-    if (argc < 2) {
-        std::cerr << "Usage: snes_frontend <rom_file.smc>\n";
+    const bool sufami = argc >= 2 && std::string_view(argv[1]) == "--sufami";
+    if ((!sufami && argc != 2) || (sufami && (argc < 4 || argc > 5))) {
+        std::cerr << "Usage: snes_frontend <rom_file.smc>\n"
+                  << "       snes_frontend --sufami <bios.bin> <slot-a.st|-> [slot-b.st|-]\n";
         return EXIT_FAILURE;
     }
-    const std::string romPath = argv[1];
+    const std::string romPath = argv[sufami ? 2 : 1];
+    const std::array<std::string, 2> slotPaths{sufami ? argv[3] : "", sufami && argc == 5 ? argv[4] : ""};
 
     // 2. Initialise SDL (video + audio + events)
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
@@ -61,7 +71,9 @@ int main(int argc, char* argv[]) {
     emulator->AttachInputProvider(input.get());
 
     std::string loadError;
-    if (!emulator->LoadCartridgeFromFile(romPath, &loadError)) {
+    const bool loaded = sufami ? emulator->LoadSufamiTurboFromFiles(romPath, slotPaths[0], slotPaths[1], &loadError) :
+                                emulator->LoadCartridgeFromFile(romPath, &loadError);
+    if (!loaded) {
         std::cerr << "Failed to load ROM: " << loadError << '\n';
         return EXIT_FAILURE;
     }
@@ -70,8 +82,31 @@ int main(int argc, char* argv[]) {
     auto savePath = std::filesystem::path(romPath);
     savePath.replace_extension(".srm");
     snes::frontend::SaveRamFile saveRam(savePath);
+    auto rtcPath = std::filesystem::path(romPath);
+    rtcPath.replace_extension(".rtc");
+    snes::frontend::SaveRamFile saveRtc(rtcPath);
+    std::array<std::unique_ptr<snes::frontend::SaveRamFile>, 2> slotSaves;
     try {
-        emulator->LoadSram(saveRam.Load(cart->SramData().size()));
+        if (sufami) {
+            std::array<std::filesystem::path, 2> paths;
+            for (unsigned i = 0; i < 2; ++i) {
+                if (cart->SlotSramData(i).empty()) continue;
+                paths[i] = std::filesystem::weakly_canonical(slotPaths[i]);
+                paths[i].replace_extension(".srm");
+            }
+            if (!paths[0].empty() && paths[0] == paths[1])
+                throw std::runtime_error("Both slots would write the same save file; use separate game paths");
+            for (unsigned i = 0; i < 2; ++i) {
+                if (paths[i].empty()) continue;
+                slotSaves[i] = std::make_unique<snes::frontend::SaveRamFile>(paths[i]);
+                emulator->LoadSlotSram(i, slotSaves[i]->Load(cart->SlotSramData(i).size()));
+            }
+        } else {
+            emulator->LoadSram(saveRam.Load(cart->SramData().size()));
+            const auto rtc = saveRtc.Load(emulator->SaveRtc().size());
+            if (!rtc.empty() && !emulator->LoadRtc(rtc))
+                throw std::runtime_error("Invalid cartridge clock save: " + rtcPath.string());
+        }
     } catch (const std::exception& e) {
         std::cerr << "Failed to load save RAM: " << e.what() << '\n';
         return EXIT_FAILURE;
@@ -81,6 +116,16 @@ int main(int argc, char* argv[]) {
         std::cout << "Loaded: " << hdr.title
                   << " (" << snes::core::MappingName(hdr.mapping) << ")\n";
     }
+
+    const auto flushSaves = [&] {
+        if (sufami) {
+            for (unsigned i = 0; i < 2; ++i)
+                if (slotSaves[i]) slotSaves[i]->Flush(cart->SlotSramData(i));
+        } else {
+            saveRam.Flush(cart->SramData());
+            saveRtc.Flush(emulator->SaveRtc());
+        }
+    };
 
     // 5. Prime audio and enter main loop
     try {
@@ -116,10 +161,10 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             emulator->StepFrame();
-            if (emulator->CurrentFrame() % 300 == 0) saveRam.Flush(cart->SramData());
+            if (emulator->CurrentFrame() % 300 == 0) flushSaves();
         }
         audio->Pause();
-        saveRam.Flush(cart->SramData());
+        flushSaves();
     } catch (const std::exception& e) {
         std::cerr << "Playback failed: " << e.what() << '\n';
         return EXIT_FAILURE;

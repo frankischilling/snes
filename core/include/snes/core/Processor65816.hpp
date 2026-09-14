@@ -1,5 +1,9 @@
+// snes emulator
+// core/include/snes/core/Processor65816.hpp
+// Reusable 65816 processor interface.
+
 #pragma once
-//
+
 // Processor65816 — Pure WDC 65C816 CPU core
 //
 // This is a platform-independent 65816 instruction-set implementation.

@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/ppu/Ppu.cpp
+// PPU registers, memory ports, counters, and frame state.
+
 // Ppu.cpp — SNES PPU register model implementation
 //
 // Implements all PPU registers $2100–$213F following bsnes ppu-fast/io.cpp.

@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/io/IrqController.cpp
+// NMI and IRQ timing, latches, and CPU line state.
+
 // IrqController.cpp — SNES NMI / IRQ dispatch implementation
 //
 // Matches bsnes sfc/cpu/irq.cpp behavior:

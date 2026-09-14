@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_sdl_audio.cpp
+// Regression coverage for SDL audio buffering.
+
 #include "SdlAudioOutput.hpp"
 
 #include <cstdio>

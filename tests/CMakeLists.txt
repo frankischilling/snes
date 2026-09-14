@@ -32,6 +32,10 @@ add_executable(snes_hardware_regression_tests test_hardware_regressions.cpp)
 target_link_libraries(snes_hardware_regression_tests PRIVATE snes_core)
 add_test(NAME snes_hardware_regression_tests COMMAND snes_hardware_regression_tests)
 
+add_executable(snes_cartridge_device_tests test_cartridge_devices.cpp)
+target_link_libraries(snes_cartridge_device_tests PRIVATE snes_core)
+add_test(NAME snes_cartridge_device_tests COMMAND snes_cartridge_device_tests)
+
 add_executable(snes_cpu_regression_tests test_cpu_regressions.cpp)
 target_link_libraries(snes_cpu_regression_tests PRIVATE snes_core)
 add_test(NAME snes_cpu_regression_tests COMMAND snes_cpu_regression_tests)
@@ -46,7 +50,7 @@ add_executable(snes_sdl_audio_tests test_sdl_audio.cpp ../frontend/src/SdlAudioO
 
 add_executable(snes_save_ram_tests test_save_ram.cpp ../frontend/src/SaveRamFile.cpp)
 target_include_directories(snes_save_ram_tests PRIVATE ../frontend/src)
-target_link_libraries(snes_save_ram_tests PRIVATE SDL3::SDL3)
+target_link_libraries(snes_save_ram_tests PRIVATE snes_core SDL3::SDL3)
 add_test(NAME snes_save_ram_tests COMMAND snes_save_ram_tests)
 target_include_directories(snes_sdl_audio_tests PRIVATE ../frontend/src)
 target_link_libraries(snes_sdl_audio_tests PRIVATE snes_core SDL3::SDL3)

@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Emulator.hpp
+// Top-level emulator lifecycle and subsystem interface.
+
 #pragma once
 // Emulator.hpp — Top-level SNES system integration
 //
@@ -25,6 +29,9 @@
 #include "snes/core/Timing.hpp"
 #include "snes/core/MemoryBus.hpp"
 #include "snes/core/Dsp1.hpp"
+#include "snes/core/Dsp2.hpp"
+#include "snes/core/Obc1.hpp"
+#include "snes/core/Srtc.hpp"
 
 #include <array>
 #include <cstdint>
@@ -74,9 +81,22 @@ public:
 
     bool LoadCartridge(std::span<const uint8_t> romData, std::string* error = nullptr);
     bool LoadCartridgeFromFile(const std::string& path, std::string* error = nullptr);
+    bool LoadSufamiTurbo(std::span<const uint8_t> bios, std::span<const uint8_t> slotA,
+                        std::span<const uint8_t> slotB, std::string* error = nullptr);
+    bool LoadSufamiTurboFromFiles(const std::string& bios, const std::string& slotA,
+                                 const std::string& slotB, std::string* error = nullptr);
 
     const Cartridge* LoadedCartridge() const noexcept;
     void LoadSram(std::span<const uint8_t> data) { if (cartridge_) cartridge_->LoadSram(data); }
+    void LoadSlotSram(unsigned slot, std::span<const uint8_t> data) {
+        if (cartridge_) cartridge_->LoadSlotSram(slot, data);
+    }
+    std::vector<uint8_t> SaveRtc() {
+        if (!srtc_) return {};
+        const auto data = srtc_->Save();
+        return {data.begin(), data.end()};
+    }
+    bool LoadRtc(std::span<const uint8_t> data) { return srtc_ && srtc_->Load(data); }
 
     FrameStepResult StepFrame(const FrameStepOptions& options = {});
 
@@ -129,6 +149,9 @@ private:
     MemoryBus       bus_;
     std::unique_ptr<SnesCpu> cpu_;   // created in InitSubsystems()
     std::unique_ptr<Dsp1> dsp1_;       // created if cartridge uses DSP-1
+    std::unique_ptr<Dsp2> dsp2_;
+    std::unique_ptr<Obc1> obc1_;
+    std::unique_ptr<Srtc> srtc_;
 
     // Audio output buffer (stereo interleaved int16_t, enough for 1+ frames)
     static constexpr int kAudioBufSamples = 2048;

@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SdlAudioOutput.cpp
+// SDL audio queue and device management.
+
 // SdlAudioOutput.cpp — SDL3-based audio output implementation
 
 #include "SdlAudioOutput.hpp"

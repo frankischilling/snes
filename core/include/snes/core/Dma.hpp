@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Dma.hpp
+// DMA and HDMA controller interface.
+
 #pragma once
 // Dma.hpp — SNES DMA/HDMA controller (8 channels)
 //

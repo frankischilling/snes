@@ -1,3 +1,7 @@
+// snes emulator
+// frontend/src/SdlVideoOutput.hpp
+// SDL video output interface.
+
 #pragma once
 // SdlVideoOutput.hpp — SDL3-based video output for the SNES emulator
 //

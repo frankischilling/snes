@@ -1,3 +1,7 @@
+// snes emulator
+// tests/test_hardware_regressions.cpp
+// Regression coverage for cartridge, PPU, DMA, and timing hardware.
+
 #include "snes/core/Emulator.hpp"
 #include <algorithm>
 #include <cstdio>

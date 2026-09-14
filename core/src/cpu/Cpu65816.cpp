@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/cpu/Cpu65816.cpp
+// The 65816 instruction and bus timing implementation.
+
 #include "snes/core/Cpu65816.hpp"
 
 namespace snes::core {

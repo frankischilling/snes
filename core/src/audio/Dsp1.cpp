@@ -1,3 +1,7 @@
+// snes emulator
+// core/src/audio/Dsp1.cpp
+// DSP-1 command processing and geometry operations.
+
 // Dsp1.cpp — DSP-1 (uPD77C25) coprocessor HLE implementation
 //
 // Ported from bsnes dsp1emu.cpp.

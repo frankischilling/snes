@@ -1,3 +1,7 @@
+// snes emulator
+// core/include/snes/core/Smp.hpp
+// SMP audio processor and timer interface.
+
 // Smp.hpp — SNES Sound Module Processor (Sony S-SMP / CXP1100Q-1)
 //
 // The SMP is the SNES APU wrapper that inherits the SPC700 processor core
