@@ -1,4 +1,3 @@
-// ============================================================================
 // MemoryBus.cpp — Unified 24-bit SNES address space dispatch
 //
 // 16 MB lookup table + handler-slot architecture.
@@ -6,7 +5,6 @@
 // bus-speed calculation, and open-bus MDR.
 //
 // Reference: bsnes sfc/memory/memory.cpp, sfc/cpu/memory.cpp
-// ============================================================================
 
 #include "snes/core/MemoryBus.hpp"
 #include "snes/core/Cartridge.hpp"
@@ -19,9 +17,7 @@
 
 namespace snes::core {
 
-// ============================================================================
 // Construction / Destruction
-// ============================================================================
 
 MemoryBus::MemoryBus()
     : lookup_(std::make_unique<uint8_t[]>(kAddressSpace))
@@ -38,9 +34,7 @@ MemoryBus::MemoryBus()
 
 MemoryBus::~MemoryBus() = default;
 
-// ============================================================================
 // ICpuBus interface
-// ============================================================================
 
 uint8_t MemoryBus::Read(uint32_t address) {
     address &= 0x00FFFFFF; // mask to 24 bits
@@ -71,7 +65,6 @@ void MemoryBus::Write(uint32_t address, uint8_t value) {
     mdr_ = value;
 }
 
-// ============================================================================
 // Bus speed calculation
 //
 // Matches bsnes sfc/cpu/memory.cpp speed logic.
@@ -90,7 +83,6 @@ void MemoryBus::Write(uint32_t address, uint8_t value) {
 //   $7E-7F         : $0000-$FFFF  (WRAM)             8
 //   $80-BF         : see above (mirrors $00-$3F with fast option)
 //   $C0-FF         : $0000-$FFFF  (ROM)              8 (or 6 if fastROM)
-// ============================================================================
 
 uint8_t MemoryBus::Speed(uint32_t address) const {
     address &= 0x00FFFFFF;
@@ -121,9 +113,7 @@ uint8_t MemoryBus::Speed(uint32_t address) const {
     return 12;
 }
 
-// ============================================================================
 // Handler registration
-// ============================================================================
 
 uint8_t MemoryBus::RegisterHandler(BusReadHandler reader, BusWriteHandler writer) {
     if (nextSlot_ >= kMaxSlots) {
@@ -164,9 +154,7 @@ void MemoryBus::MapRegions(
     }
 }
 
-// ============================================================================
 // Reset
-// ============================================================================
 
 void MemoryBus::Reset() {
     // Clear all lookup entries to slot 0 (open bus)
@@ -201,9 +189,7 @@ void MemoryBus::Reset() {
     wmdataSlot_ = 0;
 }
 
-// ============================================================================
 // WRAM mapping
-// ============================================================================
 
 void MemoryBus::MapWram() {
     // Register WRAM low-mirror handler (banks $00-3F,$80-BF : $0000-$1FFF)
@@ -234,7 +220,6 @@ void MemoryBus::MapWram() {
     }, wmdataSlot_);
 }
 
-// ============================================================================
 // CPU I/O register mapping ($4016-$4017, $4200-$421F)
 //
 // These are mapped to banks $00-3F,$80-BF following bsnes cpu.cpp power():
@@ -242,7 +227,6 @@ void MemoryBus::MapWram() {
 //
 // WMDATA ($2180-$2183) is already mapped by MapWram(), so MapCpuIo() only
 // needs to map the joypad ports and the $4200-$421F range.
-// ============================================================================
 
 void MemoryBus::MapCpuIo(CpuIoRegisters& cpuIo) {
     // Register a single handler for all CPU I/O reads/writes.
@@ -268,12 +252,10 @@ void MemoryBus::MapCpuIo(CpuIoRegisters& cpuIo) {
     }, cpuIoSlot);
 }
 
-// ============================================================================
 // DMA channel register mapping ($4300-$437F)
 //
 // bsnes maps these in cpu.cpp power():
 //   bus.map(readDMA, writeDMA, "00-3f,80-bf:4300-437f")
-// ============================================================================
 
 void MemoryBus::MapDma(DmaController& dma) {
     uint8_t dmaSlot = RegisterHandler(
@@ -292,12 +274,10 @@ void MemoryBus::MapDma(DmaController& dma) {
     }, dmaSlot);
 }
 
-// ============================================================================
 // PPU register mapping ($2100-$213F)
 //
 // bsnes maps these in ppu power():
 //   bus.map(reader, writer, "00-3f,80-bf:2100-213f")
-// ============================================================================
 
 void MemoryBus::MapPpu(Ppu& ppu) {
     uint8_t ppuSlot = RegisterHandler(
@@ -316,14 +296,12 @@ void MemoryBus::MapPpu(Ppu& ppu) {
     }, ppuSlot);
 }
 
-// ============================================================================
 // APU communication port mapping ($2140-$217F)
 //
 // bsnes maps these in cpu.cpp power():
 //   bus.map(readAPU, writeAPU, "00-3f,80-bf:2140-217f")
 //
 // $2140-$217F are all mirrors of 4 ports (only bits 0-1 matter).
-// ============================================================================
 
 void MemoryBus::MapApu(Smp& smp) {
     uint8_t apuSlot = RegisterHandler(
@@ -342,9 +320,7 @@ void MemoryBus::MapApu(Smp& smp) {
     }, apuSlot);
 }
 
-// ============================================================================
 // Cartridge mapping
-// ============================================================================
 
 void MemoryBus::MapCartridge(Cartridge& cart) {
     // Register a single ROM+SRAM handler.
@@ -438,9 +414,7 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
     }
 }
 
-// ============================================================================
 // WRAM read/write handlers
-// ============================================================================
 
 // Low mirror: banks $00-3F,$80-BF : $0000-$1FFF → first 8 KB of WRAM
 uint8_t MemoryBus::readWramLow(uint32_t addr, uint8_t /*openBus*/) {
@@ -464,14 +438,12 @@ void MemoryBus::writeWramFull(uint32_t addr, uint8_t data) {
     wram_[offset & 0x1FFFF] = data;
 }
 
-// ============================================================================
 // WMDATA register ($2180-$2183)
 //
 //   $2180 — WMDATA read/write  (reads/writes WRAM[wmdataAddr_], auto-increment)
 //   $2181 — WMADDL write       (low byte of WRAM address)
 //   $2182 — WMADDM write       (mid byte of WRAM address)
 //   $2183 — WMADDH write       (high bit of WRAM address, bit 0 only)
-// ============================================================================
 
 uint8_t MemoryBus::readWmdata(uint32_t addr, uint8_t openBus) {
     uint16_t offset = addr & 0xFFFF;

@@ -19,14 +19,10 @@
 
 namespace snes::core {
 
-// ---------------------------------------------------------------------------
 // Processor65816  — reusable 65C816 CPU core
-// ---------------------------------------------------------------------------
 class Processor65816 {
 public:
-    // -----------------------------------------------------------------------
     // Register file
-    // -----------------------------------------------------------------------
     struct Registers {
         uint16_t a  = 0;       // Accumulator (C)
         uint16_t x  = 0;       // Index X
@@ -56,9 +52,7 @@ public:
         uint32_t w = 0;
     };
 
-    // -----------------------------------------------------------------------
     // Status flag constants (bit positions in p register)
-    // -----------------------------------------------------------------------
     static constexpr uint8_t FlagC = 0x01;
     static constexpr uint8_t FlagZ = 0x02;
     static constexpr uint8_t FlagI = 0x04;
@@ -68,9 +62,7 @@ public:
     static constexpr uint8_t FlagV = 0x40;
     static constexpr uint8_t FlagN = 0x80;
 
-    // -----------------------------------------------------------------------
     // Interrupt types
-    // -----------------------------------------------------------------------
     enum class Interrupt {
         Reset,
         Nmi,
@@ -80,9 +72,7 @@ public:
         Abort
     };
 
-    // -----------------------------------------------------------------------
     // Construction / destruction
-    // -----------------------------------------------------------------------
     Processor65816() = default;
     virtual ~Processor65816() = default;
 
@@ -92,34 +82,24 @@ public:
     Processor65816(Processor65816&&) = default;
     Processor65816& operator=(Processor65816&&) = default;
 
-    // -----------------------------------------------------------------------
     // Virtual bus interface — subclasses implement these
-    // -----------------------------------------------------------------------
     virtual void idle() = 0;                                   // Internal operation cycle
     virtual uint8_t read(uint32_t address) = 0;                // Bus read
     virtual void write(uint32_t address, uint8_t data) = 0;    // Bus write
     virtual void lastCycle() = 0;                              // Called on final cycle of instruction (IRQ/NMI edge)
     virtual bool interruptPending() const = 0;                 // Is NMI or IRQ about to fire?
 
-    // -----------------------------------------------------------------------
     // Power / reset
-    // -----------------------------------------------------------------------
     void power();
 
-    // -----------------------------------------------------------------------
     // Instruction execution — runs one full instruction
-    // -----------------------------------------------------------------------
     void instruction();
 
-    // -----------------------------------------------------------------------
     // Register accessors
-    // -----------------------------------------------------------------------
     const Registers& regs() const noexcept { return r; }
     Registers& regs() noexcept { return r; }
 
-    // -----------------------------------------------------------------------
     // Flag helpers (inline, used by CPU core and subclasses)
-    // -----------------------------------------------------------------------
     bool flagC() const { return (r.p & FlagC) != 0; }
     bool flagZ() const { return (r.p & FlagZ) != 0; }
     bool flagI() const { return (r.p & FlagI) != 0; }
@@ -133,22 +113,16 @@ public:
     bool xf() const { return r.e || flagX(); }  // 8-bit index?
 
 protected:
-    // -----------------------------------------------------------------------
     // Register file
-    // -----------------------------------------------------------------------
     Registers r{};
 
-    // -----------------------------------------------------------------------
     // Flag manipulation
-    // -----------------------------------------------------------------------
     void setFlag(uint8_t flag, bool set);
     void setNZ8(uint8_t value);
     void setNZ16(uint16_t value);
     void setE(bool enabled);
 
-    // -----------------------------------------------------------------------
     // Memory access helpers (following bsnes memory.cpp)
-    // -----------------------------------------------------------------------
     uint8_t fetch();                                     // [PB:PC++]
     void idleIRQ();                                      // idle, but reads bus if IRQ pending
     void idle2();                                        // extra cycle when D.l != 0
@@ -171,9 +145,7 @@ protected:
     uint8_t readStack(uint32_t address);                 // [S+offset]
     void    writeStack(uint32_t address, uint8_t data);
 
-    // -----------------------------------------------------------------------
     // ALU algorithms — 8-bit and 16-bit variants
-    // -----------------------------------------------------------------------
     using Alu8  = uint8_t  (Processor65816::*)(uint8_t);
     using Alu16 = uint16_t (Processor65816::*)(uint16_t);
 
@@ -218,9 +190,7 @@ protected:
     uint8_t  algorithmTSB8(uint8_t data);
     uint16_t algorithmTSB16(uint16_t data);
 
-    // -----------------------------------------------------------------------
     // Instruction implementations — read operations
-    // -----------------------------------------------------------------------
     void instructionImmediateRead8(Alu8 op);
     void instructionImmediateRead16(Alu16 op);
     void instructionBankRead8(Alu8 op);
@@ -246,9 +216,7 @@ protected:
     void instructionIndirectStackRead8(Alu8 op);
     void instructionIndirectStackRead16(Alu16 op);
 
-    // -----------------------------------------------------------------------
     // Instruction implementations — write operations
-    // -----------------------------------------------------------------------
     void instructionBankWrite8(uint16_t reg);
     void instructionBankWrite16(uint16_t reg);
     void instructionBankWrite8(uint16_t reg, uint16_t index);
@@ -272,9 +240,7 @@ protected:
     void instructionIndirectStackWrite8();
     void instructionIndirectStackWrite16();
 
-    // -----------------------------------------------------------------------
     // Instruction implementations — read-modify-write
-    // -----------------------------------------------------------------------
     void instructionImpliedModify8(Alu8 op, uint16_t& reg);
     void instructionImpliedModify16(Alu16 op, uint16_t& reg);
     void instructionBankModify8(Alu8 op);
@@ -286,9 +252,7 @@ protected:
     void instructionDirectIndexedModify8(Alu8 op);
     void instructionDirectIndexedModify16(Alu16 op);
 
-    // -----------------------------------------------------------------------
     // Instruction implementations — program counter control
-    // -----------------------------------------------------------------------
     void instructionBranch(bool take = true);
     void instructionBranchLong();
     void instructionJumpShort();
@@ -303,9 +267,7 @@ protected:
     void instructionReturnShort();
     void instructionReturnLong();
 
-    // -----------------------------------------------------------------------
     // Instruction implementations — miscellaneous
-    // -----------------------------------------------------------------------
     void instructionBitImmediate8();
     void instructionBitImmediate16();
     void instructionNoOperation();
@@ -339,9 +301,7 @@ protected:
     void instructionPushEffectiveIndirectAddress();  // PEI
     void instructionPushEffectiveRelativeAddress();  // PER
 
-    // -----------------------------------------------------------------------
     // Interrupt entry
-    // -----------------------------------------------------------------------
     void enterInterrupt(Interrupt type);
     uint16_t vectorAddress(Interrupt type) const;
 

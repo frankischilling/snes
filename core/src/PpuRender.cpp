@@ -1,4 +1,3 @@
-// ============================================================================
 // PpuRender.cpp — SNES PPU scanline rendering pipeline
 //
 // Implements the scanline-based rendering pipeline following bsnes ppu-fast:
@@ -12,7 +11,6 @@
 //   - Output to RGBA8888 framebuffer
 //
 // Reference: bsnes sfc/ppu-fast/line.cpp, background.cpp, object.cpp
-// ============================================================================
 
 #include "snes/core/Ppu.hpp"
 #include <algorithm>
@@ -45,9 +43,7 @@ bool OamTraceEnabled() {
 }
 }
 
-// ============================================================================
 // Brightness lookup table
-// ============================================================================
 
 void Ppu::BuildLightTable() {
     // 16 brightness levels × 32768 BGR555 entries
@@ -69,9 +65,7 @@ void Ppu::BuildLightTable() {
     }
 }
 
-// ============================================================================
 // OAM parsing — raw bytes → structured Object array
-// ============================================================================
 
 void Ppu::ParseOam() {
     for (int n = 0; n < 128; n++) {
@@ -101,16 +95,12 @@ void Ppu::ParseOam() {
     }
 }
 
-// ============================================================================
 // Scanline snapshot — called each visible scanline during emulation
-// ============================================================================
 
 // ScanlineBegin is defined in Ppu.cpp; we update it here with caching.
 // The actual caching is done via the new body (see wire-up below).
 
-// ============================================================================
 // Frame rendering — renders all cached scanlines at VBlank
-// ============================================================================
 
 void Ppu::RenderFrame() {
     if (lineCount_ == 0) return;
@@ -148,9 +138,7 @@ void Ppu::RenderFrame() {
     gRenderFrame++;
 }
 
-// ============================================================================
 // RenderLine — the core per-scanline pipeline
-// ============================================================================
 
 void Ppu::RenderLine(Line& line) {
     uint16_t y = line.y;
@@ -205,9 +193,7 @@ void Ppu::RenderLine(Line& line) {
     }
 }
 
-// ============================================================================
 // InitLineBuffers — fill with backdrop color
-// ============================================================================
 
 void Ppu::InitLineBuffers(Line& line) {
     bool hires = line.io.pseudoHires || line.io.bgMode == 5 || line.io.bgMode == 6;
@@ -220,9 +206,7 @@ void Ppu::InitLineBuffers(Line& line) {
     }
 }
 
-// ============================================================================
 // PlotAbove / PlotBelow — priority-based pixel merge
-// ============================================================================
 
 void Ppu::PlotAbove(Line& line, int x, uint8_t source,
                     uint8_t priority, uint16_t color) {
@@ -238,9 +222,7 @@ void Ppu::PlotBelow(Line& line, int x, uint8_t source,
     }
 }
 
-// ============================================================================
 // DirectColor — BG1 direct color mode (modes 3/4)
-// ============================================================================
 
 uint16_t Ppu::DirectColor(uint8_t paletteIndex, uint8_t paletteColor) {
     // paletteIndex = bgr bits from palette number (3 bits)
@@ -251,12 +233,10 @@ uint16_t Ppu::DirectColor(uint8_t paletteIndex, uint8_t paletteColor) {
         ((paletteColor << 7) & 0x6000) + ((paletteIndex << 10) & 0x1000));  // B
 }
 
-// ============================================================================
 // GetTile — tilemap word lookup
 //
 // The tilemap contains 16-bit entries: vhopppcc cccccccc
 //   v=vflip h=hflip o=priority ppp=palette cccccccccc=character
-// ============================================================================
 
 uint16_t Ppu::GetTile(const Line& line, const Background& bg,
                       uint32_t hoffset, uint32_t voffset) {
@@ -277,11 +257,9 @@ uint16_t Ppu::GetTile(const Line& line, const Background& bg,
     return vram_[(bg.screenAddress + offset) & 0x7FFF];
 }
 
-// ============================================================================
 // RenderBackground — tiled BG rendering (modes 0-6, 2/4/8bpp)
 //
 // Reference: bsnes ppu-fast/background.cpp
-// ============================================================================
 
 void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
     // Skip inactive layers
@@ -512,11 +490,9 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
     }
 }
 
-// ============================================================================
 // RenderMode7 — Mode 7 affine-transformed background
 //
 // Reference: bsnes ppu-fast/mode7.cpp
-// ============================================================================
 
 void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
     if (!bg.aboveEnable && !bg.belowEnable) return;
@@ -629,11 +605,9 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
     }
 }
 
-// ============================================================================
 // RenderObjects — sprite rendering
 //
 // Reference: bsnes ppu-fast/object.cpp
-// ============================================================================
 
 void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
     if (!obj.aboveEnable && !obj.belowEnable) return;
@@ -823,11 +797,9 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
     }
 }
 
-// ============================================================================
 // RenderWindow — compute window mask for a BG/OBJ layer
 //
 // output[x] = true means pixel is INSIDE the window → will be clipped
-// ============================================================================
 
 void Ppu::RenderWindow(const Line& line, const WindowLayer& wl, bool enable,
                        bool output[256]) {
@@ -867,12 +839,10 @@ void Ppu::RenderWindow(const Line& line, const WindowLayer& wl, bool enable,
     }
 }
 
-// ============================================================================
 // RenderWindowColor — compute window mask for color math
 //
 // mask: 0=always on, 1=inside window only, 2=outside window only, 3=never
 // output[x] = true means color math/display is ENABLED at this pixel
-// ============================================================================
 
 void Ppu::RenderWindowColor(const Line& line, const WindowColor& wc,
                             uint8_t mask, bool output[256]) {
@@ -922,11 +892,9 @@ void Ppu::RenderWindowColor(const Line& line, const WindowColor& wc,
     }
 }
 
-// ============================================================================
 // CompositePixel — color math compositing per pixel
 //
 // Reference: bsnes ppu-fast/line.cpp pixel()
-// ============================================================================
 
 uint16_t Ppu::CompositePixel(const Line& line, int x,
                              Pixel above, Pixel below) const {
@@ -952,11 +920,9 @@ uint16_t Ppu::CompositePixel(const Line& line, int x,
                  below.source != Source::COL);
 }
 
-// ============================================================================
 // Blend — saturating add/subtract on packed BGR555
 //
 // Reference: bsnes ppu-fast/line.cpp blend()
-// ============================================================================
 
 uint16_t Ppu::Blend(const Line& line, uint16_t x, uint16_t y,
                     bool halve) const {

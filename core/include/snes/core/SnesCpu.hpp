@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // SnesCpu.hpp — SNES-specific CPU wrapper
 //
 // Inherits the pure Processor65816 core and implements:
@@ -12,7 +11,6 @@
 //
 // The old ICpuBus interface is preserved as a simple intermediary so that
 // existing tests and the Emulator can plug in a bus implementation.
-// ============================================================================
 
 #include "snes/core/Processor65816.hpp"
 #include "snes/core/Cpu65816.hpp"  // For ICpuBus
@@ -21,9 +19,7 @@
 
 namespace snes::core {
 
-// ---------------------------------------------------------------------------
 // SnesCpu — SNES 65816 CPU
-// ---------------------------------------------------------------------------
 class SnesCpu : public Processor65816 {
 public:
     explicit SnesCpu(ICpuBus& bus);
@@ -33,9 +29,7 @@ public:
     SnesCpu(const SnesCpu&) = delete;
     SnesCpu& operator=(const SnesCpu&) = delete;
 
-    // -----------------------------------------------------------------------
     // System interface
-    // -----------------------------------------------------------------------
 
     /// Initialize CPU state and load reset vector.
     void Reset();
@@ -50,9 +44,7 @@ public:
     /// Total master clocks elapsed
     uint64_t Cycles() const noexcept { return cycles_; }
 
-    // -----------------------------------------------------------------------
     // DRAM refresh
-    // -----------------------------------------------------------------------
 
     /// Apply the 40-master-clock DRAM refresh penalty.
     /// Called by the Timing onDramRefresh callback once per scanline.
@@ -73,9 +65,7 @@ public:
     /// Returns raw DRAM refresh state: 0=idle, 1=bus-halt, 2=interleave.
     uint8_t DramRefreshState() const noexcept { return dramRefreshState_; }
 
-    // -----------------------------------------------------------------------
     // Bus interface overrides  (Processor65816 virtuals)
-    // -----------------------------------------------------------------------
     void idle() override;
     uint8_t read(uint32_t address) override;
     void write(uint32_t address, uint8_t data) override;

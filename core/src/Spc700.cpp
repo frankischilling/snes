@@ -1,20 +1,16 @@
-// ============================================================================
 // Spc700.cpp — Sony SPC700 Audio Processor Core Implementation
 //
 // All 256 opcodes, ALU algorithms, and addressing mode instruction helpers.
 //
 // Reference: bsnes processor/spc700/
 //   - algorithms.cpp, memory.cpp, instruction.cpp, instructions.cpp
-// ============================================================================
 
 #include "snes/core/Spc700.hpp"
 #include <cstring>
 
 namespace snes::core {
 
-// ============================================================================
 // Constructor / Power
-// ============================================================================
 
 Spc700::Spc700() {
     Power();
@@ -32,9 +28,7 @@ void Spc700::Power() {
     cycles_ = 0;
 }
 
-// ============================================================================
 // Memory access helpers
-// ============================================================================
 
 uint8_t Spc700::Fetch() {
     return Read(r.pc++);
@@ -56,9 +50,7 @@ void Spc700::Push(uint8_t data) {
     Write(0x0100 | static_cast<uint16_t>(r.s--), data);
 }
 
-// ============================================================================
 // ALU Algorithms — 8-bit
-// ============================================================================
 
 uint8_t Spc700::AlgADC(uint8_t x, uint8_t y) {
     int z = x + y + (r.p.c ? 1 : 0);
@@ -157,9 +149,7 @@ uint8_t Spc700::AlgLD(uint8_t /*x*/, uint8_t y) {
     return y;
 }
 
-// ============================================================================
 // ALU Algorithms — 16-bit
-// ============================================================================
 
 uint16_t Spc700::AlgADW(uint16_t x, uint16_t y) {
     // Two chained ADC calls: low byte first, then high byte
@@ -196,24 +186,22 @@ uint16_t Spc700::AlgLDW(uint16_t /*x*/, uint16_t y) {
     return y;
 }
 
-// ============================================================================
 // Instruction implementations — addressing mode groups
-// ============================================================================
 
-// --- Immediate: op A, #imm ---
+// Immediate: op A, #imm
 void Spc700::InstrImmediateRead(AlgOp op, uint8_t& target) {
     uint8_t imm = Fetch();
     target = (this->*op)(target, imm);
 }
 
-// --- Direct page: op A, dp ---
+// Direct page: op A, dp
 void Spc700::InstrDirectRead(AlgOp op, uint8_t& target) {
     uint8_t dp = Fetch();
     uint8_t val = Load(dp);
     target = (this->*op)(target, val);
 }
 
-// --- Direct page modify: op dp ---
+// Direct page modify: op dp
 void Spc700::InstrDirectModify(ModOp op) {
     uint8_t dp = Fetch();
     uint8_t val = Load(dp);
@@ -221,14 +209,14 @@ void Spc700::InstrDirectModify(ModOp op) {
     Store(dp, val);
 }
 
-// --- Direct page write: MOV dp, reg ---
+// Direct page write: MOV dp, reg
 void Spc700::InstrDirectWrite(uint8_t data) {
     uint8_t dp = Fetch();
     Load(dp); // dummy read (bus timing)
     Store(dp, data);
 }
 
-// --- Direct page indexed: op A, dp+X ---
+// Direct page indexed: op A, dp+X
 void Spc700::InstrDirectIndexedRead(AlgOp op, uint8_t& target, uint8_t index) {
     uint8_t dp = Fetch();
     Idle();
@@ -236,7 +224,7 @@ void Spc700::InstrDirectIndexedRead(AlgOp op, uint8_t& target, uint8_t index) {
     target = (this->*op)(target, val);
 }
 
-// --- Direct page indexed modify: op dp+X ---
+// Direct page indexed modify: op dp+X
 void Spc700::InstrDirectIndexedModify(ModOp op, uint8_t index) {
     uint8_t dp = Fetch();
     Idle();
@@ -245,7 +233,7 @@ void Spc700::InstrDirectIndexedModify(ModOp op, uint8_t index) {
     Store(static_cast<uint8_t>(dp + index), val);
 }
 
-// --- Direct page indexed write: MOV dp+X, reg ---
+// Direct page indexed write: MOV dp+X, reg
 void Spc700::InstrDirectIndexedWrite(uint8_t data, uint8_t index) {
     uint8_t dp = Fetch();
     Idle();
@@ -253,7 +241,7 @@ void Spc700::InstrDirectIndexedWrite(uint8_t data, uint8_t index) {
     Store(static_cast<uint8_t>(dp + index), data);
 }
 
-// --- Absolute: op A, abs ---
+// Absolute: op A, abs
 void Spc700::InstrAbsoluteRead(AlgOp op, uint8_t& target) {
     uint8_t lo = Fetch();
     uint8_t hi = Fetch();
@@ -262,7 +250,7 @@ void Spc700::InstrAbsoluteRead(AlgOp op, uint8_t& target) {
     target = (this->*op)(target, val);
 }
 
-// --- Absolute modify: op abs ---
+// Absolute modify: op abs
 void Spc700::InstrAbsoluteModify(ModOp op) {
     uint8_t lo = Fetch();
     uint8_t hi = Fetch();
@@ -272,7 +260,7 @@ void Spc700::InstrAbsoluteModify(ModOp op) {
     Write(addr, val);
 }
 
-// --- Absolute write: MOV abs, reg ---
+// Absolute write: MOV abs, reg
 void Spc700::InstrAbsoluteWrite(uint8_t data) {
     uint8_t lo = Fetch();
     uint8_t hi = Fetch();
@@ -281,7 +269,7 @@ void Spc700::InstrAbsoluteWrite(uint8_t data) {
     Write(addr, data);
 }
 
-// --- Absolute indexed: op A, abs+X ---
+// Absolute indexed: op A, abs+X
 void Spc700::InstrAbsoluteIndexedRead(AlgOp op, uint8_t index) {
     uint8_t lo = Fetch();
     uint8_t hi = Fetch();
@@ -291,7 +279,7 @@ void Spc700::InstrAbsoluteIndexedRead(AlgOp op, uint8_t index) {
     r.a = (this->*op)(r.a, val);
 }
 
-// --- Absolute indexed write: MOV abs+X, A ---
+// Absolute indexed write: MOV abs+X, A
 void Spc700::InstrAbsoluteIndexedWrite(uint8_t index) {
     uint8_t lo = Fetch();
     uint8_t hi = Fetch();
@@ -301,7 +289,7 @@ void Spc700::InstrAbsoluteIndexedWrite(uint8_t index) {
     Write(addr, r.a);
 }
 
-// --- Indexed indirect: op A, [dp+X] ---
+// Indexed indirect: op A, [dp+X]
 void Spc700::InstrIndexedIndirectRead(AlgOp op, uint8_t index) {
     uint8_t dp = Fetch();
     Idle();
@@ -312,7 +300,7 @@ void Spc700::InstrIndexedIndirectRead(AlgOp op, uint8_t index) {
     r.a = (this->*op)(r.a, val);
 }
 
-// --- Indexed indirect write: MOV [dp+X], A ---
+// Indexed indirect write: MOV [dp+X], A
 void Spc700::InstrIndexedIndirectWrite(uint8_t data, uint8_t index) {
     uint8_t dp = Fetch();
     Idle();
@@ -323,7 +311,7 @@ void Spc700::InstrIndexedIndirectWrite(uint8_t data, uint8_t index) {
     Write(addr, data);
 }
 
-// --- Indirect indexed: op A, [dp]+Y ---
+// Indirect indexed: op A, [dp]+Y
 void Spc700::InstrIndirectIndexedRead(AlgOp op, uint8_t index) {
     uint8_t dp = Fetch();
     uint8_t ptrL = Load(dp);
@@ -334,7 +322,7 @@ void Spc700::InstrIndirectIndexedRead(AlgOp op, uint8_t index) {
     r.a = (this->*op)(r.a, val);
 }
 
-// --- Indirect indexed write: MOV [dp]+Y, A ---
+// Indirect indexed write: MOV [dp]+Y, A
 void Spc700::InstrIndirectIndexedWrite(uint8_t data, uint8_t index) {
     uint8_t dp = Fetch();
     uint8_t ptrL = Load(dp);
@@ -345,34 +333,34 @@ void Spc700::InstrIndirectIndexedWrite(uint8_t data, uint8_t index) {
     Write(addr, data);
 }
 
-// --- Indirect X: op A, (X) ---
+// Indirect X: op A, (X)
 void Spc700::InstrIndirectXRead(AlgOp op) {
     Idle();
     uint8_t val = Load(r.x);
     r.a = (this->*op)(r.a, val);
 }
 
-// --- Indirect X write: MOV (X), A ---
+// Indirect X write: MOV (X), A
 void Spc700::InstrIndirectXWrite(uint8_t data) {
     Idle();
     Load(r.x); // dummy read
     Store(r.x, data);
 }
 
-// --- MOV A,(X++) ---
+// MOV A,(X++)
 void Spc700::InstrIndirectXIncrementRead(uint8_t& target) {
     Idle();
     target = AlgLD(target, Load(r.x++));
 }
 
-// --- MOV (X++),A ---
+// MOV (X++),A
 void Spc700::InstrIndirectXIncrementWrite(uint8_t data) {
     Idle();
     Idle();
     Store(r.x++, data);
 }
 
-// --- CMP (X),(Y) ---
+// CMP (X),(Y)
 void Spc700::InstrIndirectXCompareIndirectY(AlgOp op) {
     Idle();
     uint8_t yVal = Load(r.y);
@@ -380,7 +368,7 @@ void Spc700::InstrIndirectXCompareIndirectY(AlgOp op) {
     (this->*op)(xVal, yVal);
 }
 
-// --- op (X)=(Y) — e.g. ADC (X)=(Y), OR (X)=(Y) ---
+// op (X)=(Y) — e.g. ADC (X)=(Y), OR (X)=(Y)
 void Spc700::InstrIndirectXWriteIndirectY(AlgOp op) {
     Idle();
     uint8_t yVal = Load(r.y);
@@ -389,11 +377,9 @@ void Spc700::InstrIndirectXWriteIndirectY(AlgOp op) {
     Store(r.x, xVal);
 }
 
-// ============================================================================
 // Direct-Direct, Direct-Immediate instruction groups
-// ============================================================================
 
-// --- CMP dp, dp ---
+// CMP dp, dp
 void Spc700::InstrDirectDirectCompare(AlgOp op) {
     uint8_t srcDp = Fetch();
     uint8_t srcVal = Load(srcDp);
@@ -402,7 +388,7 @@ void Spc700::InstrDirectDirectCompare(AlgOp op) {
     (this->*op)(dstVal, srcVal);
 }
 
-// --- op dp, dp (e.g. ADC dp,dp) ---
+// op dp, dp (e.g. ADC dp,dp)
 void Spc700::InstrDirectDirectModify(AlgOp op) {
     uint8_t srcDp = Fetch();
     uint8_t srcVal = Load(srcDp);
@@ -412,7 +398,7 @@ void Spc700::InstrDirectDirectModify(AlgOp op) {
     Store(dstDp, dstVal);
 }
 
-// --- MOV dp, dp ---
+// MOV dp, dp
 void Spc700::InstrDirectDirectWrite() {
     uint8_t srcDp = Fetch();
     uint8_t srcVal = Load(srcDp);
@@ -420,7 +406,7 @@ void Spc700::InstrDirectDirectWrite() {
     Store(dstDp, srcVal);
 }
 
-// --- CMP dp, #imm ---
+// CMP dp, #imm
 void Spc700::InstrDirectImmediateCompare(AlgOp op) {
     uint8_t imm = Fetch();
     uint8_t dp = Fetch();
@@ -428,7 +414,7 @@ void Spc700::InstrDirectImmediateCompare(AlgOp op) {
     (this->*op)(val, imm);
 }
 
-// --- op dp, #imm (e.g. ADC dp,#imm) ---
+// op dp, #imm (e.g. ADC dp,#imm)
 void Spc700::InstrDirectImmediateModify(AlgOp op) {
     uint8_t imm = Fetch();
     uint8_t dp = Fetch();
@@ -437,7 +423,7 @@ void Spc700::InstrDirectImmediateModify(AlgOp op) {
     Store(dp, val);
 }
 
-// --- MOV dp, #imm ---
+// MOV dp, #imm
 void Spc700::InstrDirectImmediateWrite() {
     uint8_t imm = Fetch();
     uint8_t dp = Fetch();
@@ -445,11 +431,9 @@ void Spc700::InstrDirectImmediateWrite() {
     Store(dp, imm);
 }
 
-// ============================================================================
 // 16-bit word operations
-// ============================================================================
 
-// --- CMPW YA, dp ---
+// CMPW YA, dp
 void Spc700::InstrDirectCompareWord(AlgOp16 op) {
     uint8_t dp = Fetch();
     uint8_t lo = Load(dp);
@@ -458,7 +442,7 @@ void Spc700::InstrDirectCompareWord(AlgOp16 op) {
     (this->*op)(r.ya(), val);
 }
 
-// --- ADDW/SUBW/MOVW YA, dp ---
+// ADDW/SUBW/MOVW YA, dp
 void Spc700::InstrDirectReadWord(AlgOp16 op) {
     uint8_t dp = Fetch();
     uint8_t lo = Load(dp);
@@ -469,7 +453,7 @@ void Spc700::InstrDirectReadWord(AlgOp16 op) {
     r.setYA(result);
 }
 
-// --- INCW/DECW dp ---
+// INCW/DECW dp
 void Spc700::InstrDirectModifyWord(int16_t adjust) {
     uint8_t dp = Fetch();
     uint8_t lo = Load(dp);
@@ -484,7 +468,7 @@ void Spc700::InstrDirectModifyWord(int16_t adjust) {
     r.p.n = (result & 0x8000) != 0;
 }
 
-// --- MOVW dp, YA ---
+// MOVW dp, YA
 void Spc700::InstrDirectWriteWord() {
     uint8_t dp = Fetch();
     Load(dp); // dummy read
@@ -492,9 +476,7 @@ void Spc700::InstrDirectWriteWord() {
     Store(static_cast<uint8_t>(dp + 1), r.y);
 }
 
-// ============================================================================
 // Bit operations
-// ============================================================================
 
 // Absolute bit modify — 8 sub-modes via opcode bits
 void Spc700::InstrAbsoluteBitModify(uint8_t mode) {
@@ -565,9 +547,7 @@ void Spc700::InstrTestSetBitsAbsolute(bool set) {
     Write(addr, val);
 }
 
-// ============================================================================
 // Branch instructions
-// ============================================================================
 
 void Spc700::InstrBranch(bool take) {
     uint8_t offset = Fetch();
@@ -638,9 +618,7 @@ void Spc700::InstrBranchNotYDecrement() {
     r.pc += static_cast<int8_t>(offset);
 }
 
-// ============================================================================
 // Flow control
-// ============================================================================
 
 // CALL abs
 void Spc700::InstrCallAbsolute() {
@@ -728,9 +706,7 @@ void Spc700::InstrBreak() {
     r.pc = static_cast<uint16_t>(lo) | (static_cast<uint16_t>(hi) << 8);
 }
 
-// ============================================================================
 // Register transfer
-// ============================================================================
 
 void Spc700::InstrTransfer(uint8_t from, uint8_t& to) {
     Idle();
@@ -742,9 +718,7 @@ void Spc700::InstrTransfer(uint8_t from, uint8_t& to) {
     }
 }
 
-// ============================================================================
 // Push / Pull
-// ============================================================================
 
 void Spc700::InstrPush(uint8_t data) {
     Idle();
@@ -770,9 +744,7 @@ void Spc700::InstrPullP() {
     r.p.Unpack(Pull());
 }
 
-// ============================================================================
 // Flag manipulation
-// ============================================================================
 
 void Spc700::InstrFlagSet(bool& flag, bool value) {
     Idle();
@@ -793,18 +765,14 @@ void Spc700::InstrComplementCarry() {
     r.p.c = !r.p.c;
 }
 
-// ============================================================================
 // Implied register single-operand modify
-// ============================================================================
 
 void Spc700::InstrImpliedModify(ModOp op, uint8_t& target) {
     Idle();
     target = (this->*op)(target);
 }
 
-// ============================================================================
 // Special instructions
-// ============================================================================
 
 // MUL YA — Y*A → YA (16-bit result), flags on Y
 void Spc700::InstrMultiply() {
@@ -889,9 +857,7 @@ void Spc700::InstrStop() {
     r.stop = true;
 }
 
-// ============================================================================
 // Step — Opcode dispatch (all 256 opcodes)
-// ============================================================================
 
 void Spc700::Step() {
     if (r.wait || r.stop) {
@@ -902,7 +868,7 @@ void Spc700::Step() {
     uint8_t opcode = Fetch();
 
     switch (opcode) {
-    // ---- 0x0X ----
+    // 0x0X
     case 0x00: InstrNoOperation(); break;
     case 0x01: InstrCallTable(0); break;
     case 0x02: InstrAbsoluteBitSet(0, true); break;
@@ -920,7 +886,7 @@ void Spc700::Step() {
     case 0x0E: InstrTestSetBitsAbsolute(true); break;   // TSET1
     case 0x0F: InstrBreak(); break;
 
-    // ---- 0x1X ----
+    // 0x1X
     case 0x10: InstrBranch(!r.p.n); break;  // BPL
     case 0x11: InstrCallTable(1); break;
     case 0x12: InstrAbsoluteBitSet(0, false); break;  // CLR1 dp.0
@@ -938,7 +904,7 @@ void Spc700::Step() {
     case 0x1E: InstrAbsoluteRead(&Spc700::AlgCMP, r.x); break;  // CMP X,abs
     case 0x1F: InstrJumpIndirectX(); break;
 
-    // ---- 0x2X ----
+    // 0x2X
     case 0x20: InstrFlagSet(r.p.p, false); break;  // CLRP
     case 0x21: InstrCallTable(2); break;
     case 0x22: InstrAbsoluteBitSet(1, true); break;
@@ -956,7 +922,7 @@ void Spc700::Step() {
     case 0x2E: InstrBranchNotDirect(); break;  // CBNE dp
     case 0x2F: InstrBranch(true); break;       // BRA
 
-    // ---- 0x3X ----
+    // 0x3X
     case 0x30: InstrBranch(r.p.n); break;  // BMI
     case 0x31: InstrCallTable(3); break;
     case 0x32: InstrAbsoluteBitSet(1, false); break;
@@ -974,7 +940,7 @@ void Spc700::Step() {
     case 0x3E: InstrDirectRead(&Spc700::AlgCMP, r.x); break;  // CMP X,dp
     case 0x3F: InstrCallAbsolute(); break;
 
-    // ---- 0x4X ----
+    // 0x4X
     case 0x40: InstrFlagSet(r.p.p, true); break;  // SETP
     case 0x41: InstrCallTable(4); break;
     case 0x42: InstrAbsoluteBitSet(2, true); break;
@@ -992,7 +958,7 @@ void Spc700::Step() {
     case 0x4E: InstrTestSetBitsAbsolute(false); break;  // TCLR1
     case 0x4F: InstrCallPage(); break;  // PCALL
 
-    // ---- 0x5X ----
+    // 0x5X
     case 0x50: InstrBranch(!r.p.v); break;  // BVC
     case 0x51: InstrCallTable(5); break;
     case 0x52: InstrAbsoluteBitSet(2, false); break;
@@ -1010,7 +976,7 @@ void Spc700::Step() {
     case 0x5E: InstrAbsoluteRead(&Spc700::AlgCMP, r.y); break;  // CMP Y,abs
     case 0x5F: InstrJumpAbsolute(); break;
 
-    // ---- 0x6X ----
+    // 0x6X
     case 0x60: InstrFlagSet(r.p.c, false); break;  // CLRC
     case 0x61: InstrCallTable(6); break;
     case 0x62: InstrAbsoluteBitSet(3, true); break;
@@ -1028,7 +994,7 @@ void Spc700::Step() {
     case 0x6E: InstrBranchNotDirectDecrement(); break;  // DBNZ dp
     case 0x6F: InstrReturnSubroutine(); break;
 
-    // ---- 0x7X ----
+    // 0x7X
     case 0x70: InstrBranch(r.p.v); break;  // BVS
     case 0x71: InstrCallTable(7); break;
     case 0x72: InstrAbsoluteBitSet(3, false); break;
@@ -1046,7 +1012,7 @@ void Spc700::Step() {
     case 0x7E: InstrDirectRead(&Spc700::AlgCMP, r.y); break;  // CMP Y,dp
     case 0x7F: InstrReturnInterrupt(); break;
 
-    // ---- 0x8X ----
+    // 0x8X
     case 0x80: InstrFlagSet(r.p.c, true); break;  // SETC
     case 0x81: InstrCallTable(8); break;
     case 0x82: InstrAbsoluteBitSet(4, true); break;
@@ -1064,7 +1030,7 @@ void Spc700::Step() {
     case 0x8E: InstrPullP(); break;  // POP PSW
     case 0x8F: InstrDirectImmediateWrite(); break;  // MOV dp,#imm
 
-    // ---- 0x9X ----
+    // 0x9X
     case 0x90: InstrBranch(!r.p.c); break;  // BCC
     case 0x91: InstrCallTable(9); break;
     case 0x92: InstrAbsoluteBitSet(4, false); break;
@@ -1082,7 +1048,7 @@ void Spc700::Step() {
     case 0x9E: InstrDivide(); break;
     case 0x9F: InstrExchangeNibble(); break;
 
-    // ---- 0xAX ----
+    // 0xAX
     case 0xA0: InstrFlagSet(r.p.i, true); break;  // EI
     case 0xA1: InstrCallTable(10); break;
     case 0xA2: InstrAbsoluteBitSet(5, true); break;
@@ -1100,7 +1066,7 @@ void Spc700::Step() {
     case 0xAE: InstrPull(r.a); break;  // POP A
     case 0xAF: InstrIndirectXIncrementWrite(r.a); break;  // MOV (X++),A
 
-    // ---- 0xBX ----
+    // 0xBX
     case 0xB0: InstrBranch(r.p.c); break;  // BCS
     case 0xB1: InstrCallTable(11); break;
     case 0xB2: InstrAbsoluteBitSet(5, false); break;
@@ -1118,7 +1084,7 @@ void Spc700::Step() {
     case 0xBE: InstrDecimalAdjustSub(); break;  // DAS
     case 0xBF: InstrIndirectXIncrementRead(r.a); break;  // MOV A,(X++)
 
-    // ---- 0xCX ----
+    // 0xCX
     case 0xC0: InstrFlagSet(r.p.i, false); break;  // DI
     case 0xC1: InstrCallTable(12); break;
     case 0xC2: InstrAbsoluteBitSet(6, true); break;
@@ -1136,7 +1102,7 @@ void Spc700::Step() {
     case 0xCE: InstrPull(r.x); break;  // POP X
     case 0xCF: InstrMultiply(); break;
 
-    // ---- 0xDX ----
+    // 0xDX
     case 0xD0: InstrBranch(!r.p.z); break;  // BNE
     case 0xD1: InstrCallTable(13); break;
     case 0xD2: InstrAbsoluteBitSet(6, false); break;
@@ -1154,7 +1120,7 @@ void Spc700::Step() {
     case 0xDE: InstrBranchNotDirectIndexed(r.x); break;  // CBNE dp+X
     case 0xDF: InstrDecimalAdjustAdd(); break;  // DAA
 
-    // ---- 0xEX ----
+    // 0xEX
     case 0xE0: InstrOverflowClear(); break;  // CLRV
     case 0xE1: InstrCallTable(14); break;
     case 0xE2: InstrAbsoluteBitSet(7, true); break;
@@ -1176,7 +1142,7 @@ void Spc700::Step() {
     case 0xEE: InstrPull(r.y); break;  // POP Y
     case 0xEF: InstrSleep(); break;
 
-    // ---- 0xFX ----
+    // 0xFX
     case 0xF0: InstrBranch(r.p.z); break;  // BEQ
     case 0xF1: InstrCallTable(15); break;
     case 0xF2: InstrAbsoluteBitSet(7, false); break;

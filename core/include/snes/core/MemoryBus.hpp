@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // MemoryBus.hpp — Unified 24-bit SNES address space dispatch
 //
 // The SNES presents a flat 24-bit (16 MB) address space to the CPU.
@@ -15,7 +14,6 @@
 // ($4200-$421F), WMDATA ($2180-$2183), and bus-speed timing.
 //
 // Following bsnes's Bus architecture in sfc/memory/memory.hpp.
-// ============================================================================
 
 #include "snes/core/Cpu65816.hpp"  // ICpuBus
 #include <array>
@@ -31,17 +29,13 @@ class DmaController;
 class Ppu;
 class Smp;
 
-// ============================================================================
 // Handler callback signatures
 //   ReadHandler:  (addr24, openBusMdr) → data
 //   WriteHandler: (addr24, data) → void
-// ============================================================================
 using BusReadHandler  = std::function<uint8_t(uint32_t addr, uint8_t openBus)>;
 using BusWriteHandler = std::function<void(uint32_t addr, uint8_t data)>;
 
-// ============================================================================
 // MemoryBus — 24-bit address space with fast lookup dispatch
-// ============================================================================
 class MemoryBus : public ICpuBus {
 public:
     MemoryBus();
@@ -51,16 +45,12 @@ public:
     MemoryBus(const MemoryBus&) = delete;
     MemoryBus& operator=(const MemoryBus&) = delete;
 
-    // -----------------------------------------------------------------------
     // ICpuBus interface — these are what SnesCpu calls
-    // -----------------------------------------------------------------------
     uint8_t Read(uint32_t address) override;
     void    Write(uint32_t address, uint8_t value) override;
     uint8_t Speed(uint32_t address) const override;
 
-    // -----------------------------------------------------------------------
     // Handler registration
-    // -----------------------------------------------------------------------
 
     /// Register a read/write handler pair and get back a slot ID (1-255).
     /// Returns 0 on failure (all slots occupied).
@@ -84,9 +74,7 @@ public:
                         std::tuple<uint8_t, uint8_t, uint16_t, uint16_t>
                     > regions, uint8_t slotId);
 
-    // -----------------------------------------------------------------------
     // Standard SNES component mapping helpers
-    // -----------------------------------------------------------------------
 
     /// Map a Cartridge's ROM and SRAM into the bus.  Must be called after
     /// Reset() or whenever the cartridge changes.
@@ -115,20 +103,15 @@ public:
     /// Full reset: clear all mappings, reset WRAM, reset I/O state.
     void Reset();
 
-    // -----------------------------------------------------------------------
     // WRAM direct access (for DMA, WMDATA, testing)
-    // -----------------------------------------------------------------------
     uint8_t* WramData() noexcept { return wram_.data(); }
     const uint8_t* WramData() const noexcept { return wram_.data(); }
     static constexpr size_t WramSize = 0x20000; // 128 KB
 
-    // -----------------------------------------------------------------------
     // CPU I/O state — MEMSEL (bus speed) flag
-    // -----------------------------------------------------------------------
     void SetFastRom(bool enabled) noexcept { fastRom_ = enabled; }
     bool FastRom() const noexcept { return fastRom_; }
 
-    // -----------------------------------------------------------------------
     // Open bus MDR
     //
     // The SNES has two open-bus behaviors:
@@ -141,7 +124,6 @@ public:
     //
     // Check: (address & 0x40fc00) == 0x4000  → CPU I/O region
     // Reference: bsnes sfc/cpu/memory.cpp line 44
-    // -----------------------------------------------------------------------
     uint8_t OpenBus() const noexcept { return mdr_; }
     void SetOpenBus(uint8_t v) noexcept { mdr_ = v; }
 
@@ -149,9 +131,7 @@ public:
     uint8_t CpuIoMdr() const noexcept { return cpuIoMdr_; }
     void SetCpuIoMdr(uint8_t v) noexcept { cpuIoMdr_ = v; }
 
-    // -----------------------------------------------------------------------
     // WMDATA address register ($2181-$2183 write, $2180 read/write)
-    // -----------------------------------------------------------------------
     uint32_t WmdataAddress() const noexcept { return wmdataAddr_; }
 
 private:
@@ -185,9 +165,7 @@ private:
     uint8_t wramSlotFull_ = 0; // for full banks ($7E-7F)
     uint8_t wmdataSlot_ = 0;   // for WMDATA register
 
-    // -----------------------------------------------------------------------
     // Built-in handlers
-    // -----------------------------------------------------------------------
 
     // WRAM handlers — low mirror (8KB per bank, 0000-1FFF)
     uint8_t readWramLow(uint32_t addr, uint8_t openBus);

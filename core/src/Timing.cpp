@@ -1,14 +1,10 @@
-// ============================================================================
 // Timing.cpp — SNES dot / scanline / frame timing implementation
-// ============================================================================
 
 #include "snes/core/Timing.hpp"
 
 namespace snes::core {
 
-// ============================================================================
 // Construction & Reset
-// ============================================================================
 
 Timing::Timing(Region region)
     : region_(region)
@@ -46,9 +42,7 @@ void Timing::SetRegion(Region r) noexcept {
     vperiod_ = (region_ == Region::NTSC) ? kScanlinesNTSC : kScanlinesPAL;
 }
 
-// ============================================================================
 // Core tick
-// ============================================================================
 
 void Timing::Tick(uint32_t clocks) {
     // Process in 2-clock increments (smallest timing unit on the SNES).
@@ -71,7 +65,7 @@ void Timing::tickOnce() {
     masterClocksElapsed_ += 2;
     hcounter_ += 2;
 
-    // --- Per-dot event checks (only fire once per scanline per event) ---
+    // Per-dot event checks (only fire once per scanline per event)
 
     // NMI assertion: fires at H=kNmiHPos on the first VBlank scanline
     if (!nmiFired_ && vcounter_ == vdisp_ && hcounter_ >= kNmiHPos) {
@@ -106,20 +100,20 @@ void Timing::tickOnce() {
         if (onHdmaTransfer) onHdmaTransfer(vcounter_);
     }
 
-    // --- Scanline wrap ---
+    // Scanline wrap
     if (hcounter_ >= hperiod_) {
         hcounter_ -= hperiod_;
         tickScanline();
     }
 
-    // --- NMI/IRQ poll every 4 master clocks (matching bsnes stepOnce) ---
+    // NMI/IRQ poll every 4 master clocks (matching bsnes stepOnce)
     // Fire after wrap so hcounter_ is valid (0..hperiod-1).
     // Bit 1 set after increment → fires every other tick → every 4 clocks.
     if ((hcounter_ & 2) && onIrqPoll) {
         onIrqPoll(hcounter_, vcounter_, vdisp_, hperiod_);
     }
 
-    // --- Joypad poll every 128 master clocks (matching bsnes joypadEdge) ---
+    // Joypad poll every 128 master clocks (matching bsnes joypadEdge)
     // Check before increment so the first tick fires immediately.
     if (joypadDivider_ == 0 && onJoypadPoll) {
         onJoypadPoll(hcounter_, vcounter_, vdisp_);
@@ -127,9 +121,7 @@ void Timing::tickOnce() {
     joypadDivider_ = (joypadDivider_ + 2) & 0x7F;
 }
 
-// ============================================================================
 // Scanline transition
-// ============================================================================
 
 void Timing::tickScanline() {
     // Advance V counter
@@ -178,9 +170,7 @@ void Timing::tickScanline() {
     }
 }
 
-// ============================================================================
 // H period calculation
-// ============================================================================
 
 void Timing::updateHPeriod() {
     hperiod_ = kDotsPerLine;  // 1364
@@ -196,9 +186,7 @@ void Timing::updateHPeriod() {
     }
 }
 
-// ============================================================================
 // Utilities
-// ============================================================================
 
 uint16_t Timing::HPeriodForScanline(uint16_t scanline) const {
     uint16_t period = kDotsPerLine;

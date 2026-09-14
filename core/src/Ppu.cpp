@@ -1,4 +1,3 @@
-// ============================================================================
 // Ppu.cpp — SNES PPU register model implementation
 //
 // Implements all PPU registers $2100–$213F following bsnes ppu-fast/io.cpp.
@@ -6,7 +5,6 @@
 // access.  Rendering pipeline is in PpuRender.cpp.
 //
 // Reference: bsnes sfc/ppu-fast/io.cpp, ppu-fast/ppu.cpp
-// ============================================================================
 
 #include "snes/core/Ppu.hpp"
 #include <algorithm>
@@ -30,9 +28,7 @@ bool PpuDebugEnabled() {
 }
 }
 
-// ============================================================================
 // Constructor / Reset
-// ============================================================================
 Ppu::Ppu()
     : vram_(std::make_unique<uint16_t[]>(VramWords))
     , lines_(std::make_unique<Line[]>(MaxVisibleLines))
@@ -68,9 +64,7 @@ void Ppu::Reset() {
     UpdateVideoMode();
 }
 
-// ============================================================================
 // Frame / scanline hooks
-// ============================================================================
 void Ppu::FrameBegin() {
     // Toggle interlace field each frame
     fieldId_ = !fieldId_;
@@ -121,9 +115,7 @@ void Ppu::VBlankBegin() {
     RenderFrame();
 }
 
-// ============================================================================
 // VRAM helpers
-// ============================================================================
 
 uint16_t Ppu::TranslatedVramAddress() const {
     uint16_t address = io_.vramAddress;
@@ -157,9 +149,7 @@ void Ppu::WriteVram(bool highByte, uint8_t data) {
     }
 }
 
-// ============================================================================
 // OAM helpers
-// ============================================================================
 
 uint8_t Ppu::ReadOam(uint16_t address) {
     address &= 0x03FF;
@@ -194,9 +184,7 @@ void Ppu::OamSetFirstObject() {
     }
 }
 
-// ============================================================================
 // CGRAM helpers
-// ============================================================================
 
 uint8_t Ppu::ReadCgram(bool highByte, uint8_t address) {
     // During active rendering (display enabled, visible scanline, in active dots),
@@ -222,9 +210,7 @@ void Ppu::WriteCgram(uint8_t address, uint16_t data) {
     cgram_[address] = data & 0x7FFF; // 15-bit color
 }
 
-// ============================================================================
 // Counter latching
-// ============================================================================
 
 void Ppu::LatchCounters(uint16_t hcounter, uint16_t vcounter) {
     io_.hcounter = hcounter;
@@ -232,11 +218,9 @@ void Ppu::LatchCounters(uint16_t hcounter, uint16_t vcounter) {
     latch_.counters = true;
 }
 
-// ============================================================================
 // ReadIO — read PPU register ($2134–$213F, plus open-bus for write-only)
 //
 // Reference: bsnes ppu-fast/io.cpp readIO()
-// ============================================================================
 uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
     switch (addr & 0xFFFF) {
 
@@ -387,11 +371,9 @@ uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
     return openBus;
 }
 
-// ============================================================================
 // WriteIO — write PPU register ($2100–$2133)
 //
 // Reference: bsnes ppu-fast/io.cpp writeIO()
-// ============================================================================
 void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     switch (addr & 0xFFFF) {
 
@@ -954,11 +936,9 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     } // switch
 }
 
-// ============================================================================
 // UpdateVideoMode — set tile modes + priority per BG mode
 //
 // Reference: bsnes ppu-fast/io.cpp updateVideoMode()
-// ============================================================================
 void Ppu::UpdateVideoMode() {
     auto assign2 = [](uint8_t (&arr)[2], uint8_t a, uint8_t b) { arr[0] = a; arr[1] = b; };
     auto assign4 = [](uint8_t (&arr)[4], uint8_t a, uint8_t b, uint8_t c, uint8_t d) {

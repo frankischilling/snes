@@ -1,10 +1,8 @@
-// ============================================================================
 // main.cpp — SNES emulator SDL3 frontend
 //
 // Usage:  snes_frontend <rom_file.smc>
 //
 // SDL init → load ROM → pace StepFrame() from audio demand → event pump → quit.
-// ============================================================================
 
 #include "SdlVideoOutput.hpp"
 #include "SdlAudioOutput.hpp"
@@ -21,18 +19,14 @@
 #include <string>
 
 int main(int argc, char* argv[]) {
-    // ------------------------------------------------------------------
     // 1. Parse command-line arguments
-    // ------------------------------------------------------------------
     if (argc < 2) {
         std::cerr << "Usage: snes_frontend <rom_file.smc>\n";
         return EXIT_FAILURE;
     }
     const std::string romPath = argv[1];
 
-    // ------------------------------------------------------------------
     // 2. Initialise SDL (video + audio + events)
-    // ------------------------------------------------------------------
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return EXIT_FAILURE;
@@ -41,9 +35,7 @@ int main(int argc, char* argv[]) {
         ~SdlLifetime() { SDL_Quit(); }
     } sdlLifetime;
 
-    // ------------------------------------------------------------------
     // 3. Create SDL platform objects
-    // ------------------------------------------------------------------
     std::unique_ptr<snes::frontend::SdlVideoOutput> video;
     std::unique_ptr<snes::frontend::SdlAudioOutput> audio;
     std::unique_ptr<snes::frontend::SdlInputProvider> input;
@@ -60,9 +52,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    // ------------------------------------------------------------------
     // 4. Create emulator & load ROM
-    // ------------------------------------------------------------------
     auto emulator = std::make_unique<snes::core::Emulator>();
 
     emulator->AttachVideoOutput(video.get());
@@ -83,14 +73,12 @@ int main(int argc, char* argv[]) {
                   << " (" << (isHiROM ? "HiROM" : "LoROM") << ")\n";
     }
 
-    // ------------------------------------------------------------------
     // 5. Prime audio and enter main loop
-    // ------------------------------------------------------------------
     try {
         audio->Resume();
         bool running = true;
         while (running) {
-            // --- Event pump (also updates keyboard state for SdlInputProvider) ---
+            // Event pump (also updates keyboard state for SdlInputProvider)
             SDL_Event event;
             while (SDL_PollEvent(&event)) {
                 switch (event.type) {
@@ -126,9 +114,7 @@ int main(int argc, char* argv[]) {
         return EXIT_FAILURE;
     }
 
-    // ------------------------------------------------------------------
     // 6. Cleanup (order matters: destroy SDL objects before SDL_Quit)
-    // ------------------------------------------------------------------
     emulator.reset();
     input.reset();
     audio.reset();

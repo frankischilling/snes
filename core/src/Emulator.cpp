@@ -1,6 +1,4 @@
-// ============================================================================
 // Emulator.cpp — SNES system integration and frame loop
-// ============================================================================
 
 #include "snes/core/Emulator.hpp"
 #include "snes/core/SnesCpu.hpp"
@@ -37,9 +35,7 @@ std::optional<const char*> UnsupportedChipName(uint8_t cartType) {
 }
 }
 
-// ============================================================================
 // Construction / destruction
-// ============================================================================
 
 Emulator::Emulator() : config_(Config{}) {
     Logger::Instance().Write(LogLevel::Info, "Emulator initialized");
@@ -52,9 +48,7 @@ Emulator::Emulator(Config config)
 
 Emulator::~Emulator() = default;
 
-// ============================================================================
 // Platform attachment
-// ============================================================================
 
 void Emulator::AttachVideoOutput(IVideoOutput* output) {
     videoOutput_ = output;
@@ -75,9 +69,7 @@ void Emulator::AddTraceSink(ITraceSink* sink) {
     traceSinks_.push_back(sink);
 }
 
-// ============================================================================
 // Cartridge loading
-// ============================================================================
 
 bool Emulator::LoadCartridge(std::span<const uint8_t> romData, std::string* error) {
     RomNormalizationInfo normalization;
@@ -144,21 +136,15 @@ const Cartridge* Emulator::LoadedCartridge() const noexcept {
     return cartridge_ ? &*cartridge_ : nullptr;
 }
 
-// ============================================================================
 // InitSubsystems — wire callbacks, map bus, reset everything
-// ============================================================================
 
 void Emulator::InitSubsystems() {
-    // -----------------------------------------------------------------------
     // 1. Inter-subsystem connections
-    // -----------------------------------------------------------------------
     dsp_.SetRam(smp_.Ram());
     smp_.SetDsp(dsp_);
     dma_.SetBus(&bus_);
 
-    // -----------------------------------------------------------------------
     // 2. Map the 24-bit address space
-    // -----------------------------------------------------------------------
     bus_.Reset();
     bus_.MapWram();
     bus_.MapPpu(ppu_);
@@ -189,14 +175,10 @@ void Emulator::InitSubsystems() {
         bus_.MapRange(0x80, 0x9F, 0x6000, 0x7FFF, slot);
     }
 
-    // -----------------------------------------------------------------------
     // 3. Create the 65816 CPU (needs bus_ reference)
-    // -----------------------------------------------------------------------
     cpu_ = std::make_unique<SnesCpu>(bus_);
 
-    // -----------------------------------------------------------------------
     // 4. Wire CpuIoRegisters → subsystem callbacks
-    // -----------------------------------------------------------------------
 
     // $4200 NMITIMEN → IrqController + AutoJoypad
     cpuIo_.SetNmitimenCallback([this](uint8_t data) {
@@ -258,9 +240,7 @@ void Emulator::InitSubsystems() {
         irq_.SetVTime(vtime);
     });
 
-    // -----------------------------------------------------------------------
     // 5. Wire Timing → subsystem callbacks
-    // -----------------------------------------------------------------------
 
     // V=0, H=0 — start of frame
     timing_.onFrameBegin = [this]() {
@@ -325,16 +305,12 @@ void Emulator::InitSubsystems() {
     // HBlank callback (not currently needed, but available)
     timing_.onHBlank = nullptr;
 
-    // -----------------------------------------------------------------------
     // 6. CPU ALU step (multiply/divide hardware pipelining during DRAM refresh)
-    // -----------------------------------------------------------------------
     cpu_->SetAluStepCallback([this]() {
         cpuIo_.AluStep();
     });
 
-    // -----------------------------------------------------------------------
     // 7. AutoJoypad input source
-    // -----------------------------------------------------------------------
     autoJoypad_.SetInputCallback([this](int /*port*/) -> InputState {
         if (inputProvider_) {
             return inputProvider_->Poll(frameIndex_);
@@ -342,13 +318,11 @@ void Emulator::InitSubsystems() {
         return {};
     });
 
-    // -----------------------------------------------------------------------
     // 8. Serial joypad ($4016/$4017) — manual strobe/read support
     //
     // Many games (DKC, etc.) read controllers via $4016/$4017 serial
     // protocol in addition to or instead of auto-joypad ($4218-$421F).
     // Implements bsnes Gamepad::latch() + Gamepad::data() behavior.
-    // -----------------------------------------------------------------------
     cpuIo_.SetJoypadLatchCallback([this](bool latch) {
         // bsnes: latch signal is CPU latch OR auto-joypad latch.
         // The auto-joypad state machine sets autoJoypadLatch_ separately.
@@ -413,9 +387,7 @@ void Emulator::InitSubsystems() {
         return bit ? 1 : 0;
     });
 
-    // -----------------------------------------------------------------------
     // 9. Reset all subsystems to power-on state
-    // -----------------------------------------------------------------------
     dsp_.Power();
     smp_.Power();
     ppu_.Reset();
@@ -442,14 +414,10 @@ void Emulator::InitSubsystems() {
     Logger::Instance().Write(LogLevel::Info, "Subsystems initialized");
 }
 
-// ============================================================================
 // StepFrame — run one complete video frame
-// ============================================================================
 
 FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
-    // -----------------------------------------------------------------
     // Stub path — no cartridge loaded yet
-    // -----------------------------------------------------------------
     if (!initialized_) {
         const auto input = inputProvider_ ? inputProvider_->Poll(frameIndex_) : InputState{};
 
@@ -503,9 +471,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         };
     }
 
-    // -----------------------------------------------------------------
     // Real frame loop
-    // -----------------------------------------------------------------
     const auto input = inputProvider_ ? inputProvider_->Poll(frameIndex_) : InputState{};
 
     // Prepare DSP audio buffer for this frame
@@ -517,10 +483,10 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     const uint32_t frameTarget = timing_.MasterClocksThisFrame();
     pendingExtraClocks_ = 0;
 
-    // === Main loop: execute CPU → tick timing → sync SMP → NMI/IRQ ===
+    // Main loop: execute CPU → tick timing → sync SMP → NMI/IRQ
     int instrThisFrame = 0;
 
-    // --- Hang detector: use a small hash table for PC frequency ---
+    // Hang detector: use a small hash table for PC frequency
     static constexpr int kPCHashSize = 64;
     static uint32_t pcHashKeys[kPCHashSize];
     static uint32_t pcHashVals[kPCHashSize];
@@ -580,7 +546,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         }
     }
 
-    // --- End-of-frame diagnostics ---
+    // End-of-frame diagnostics
     // Find the most-hit PC this frame
     uint32_t topPC = 0;
     uint32_t topCount = 0;
@@ -644,7 +610,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         lastTopPC = 0;
     }
 
-    // === End-of-frame processing ===
+    // End-of-frame processing
 
     // RenderFrame is now called from VBlankBegin() — no separate call here.
     // The previous duplicate call consumed V=1 from the next frame, causing
@@ -700,9 +666,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     };
 }
 
-// ============================================================================
 // Accessors
-// ============================================================================
 
 uint64_t Emulator::CurrentFrame() const noexcept {
     return frameIndex_;

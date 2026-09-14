@@ -1,4 +1,3 @@
-// ============================================================================
 // Dsp.hpp — SNES S-DSP (Sony S-DSP / μPD77C25)
 //
 // The DSP is responsible for all SNES audio output:
@@ -17,7 +16,6 @@
 // with register writes taking effect at sample boundaries.
 //
 // Reference: bsnes sfc/dsp/SPC_DSP.h, sfc/dsp/SPC_DSP.cpp
-// ============================================================================
 
 #pragma once
 
@@ -28,9 +26,7 @@ namespace snes::core {
 
 class Dsp {
 public:
-    // ========================================================================
     // Constants
-    // ========================================================================
     static constexpr int RegisterCount = 128;
     static constexpr int VoiceCount    = 8;
     static constexpr int BrrBufSize    = 12;   // Decoded sample buffer (3 groups of 4)
@@ -70,9 +66,7 @@ public:
     // Envelope modes
     enum EnvMode { Release = 0, Attack = 1, Decay = 2, Sustain = 3 };
 
-    // ========================================================================
     // Voice state
-    // ========================================================================
     struct Voice {
         int      buf[BrrBufSize * 2]{};  // Decoded BRR samples (doubled for wrap)
         int      bufPos    = 0;          // Write position in decode buffer
@@ -86,9 +80,7 @@ public:
         int      output    = 0;          // Last voice output (for pitch mod)
     };
 
-    // ========================================================================
     // Public interface
-    // ========================================================================
     Dsp();
 
     // Register access (called by SMP for $F3 DSPDATA)
@@ -113,9 +105,7 @@ public:
     int     SamplesWritten() const { return samplesWritten_; }
     void    ResetSamplesWritten() { samplesWritten_ = 0; }
 
-    // ========================================================================
     // Direct state access (for testing / inspection)
-    // ========================================================================
     const std::array<uint8_t, RegisterCount>& Regs() const { return regs_; }
     std::array<uint8_t, RegisterCount>&       Regs()       { return regs_; }
 
@@ -126,9 +116,7 @@ public:
     int  Counter() const { return counter_; }
 
 private:
-    // ========================================================================
     // Internal processing
-    // ========================================================================
     void decodeBrr(Voice& v, int header, int brrByte1, int brrByte2);
     int  interpolate(const Voice& v) const;
     void runEnvelope(Voice& v, int adsr0, int adsr1, int gain);
@@ -147,9 +135,7 @@ private:
     uint8_t reg(int addr) const { return regs_[addr]; }
     uint8_t vreg(int voice, int offset) const { return regs_[voice * 0x10 + offset]; }
 
-    // ========================================================================
     // State
-    // ========================================================================
     std::array<uint8_t, RegisterCount> regs_{};
     Voice voices_[VoiceCount]{};
 

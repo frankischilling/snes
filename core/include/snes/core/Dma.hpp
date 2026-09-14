@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // Dma.hpp — SNES DMA/HDMA controller (8 channels)
 //
 // The SNES has 8 DMA channels, each with its own set of registers at
@@ -13,7 +12,6 @@
 //
 // Reference: bsnes sfc/cpu/cpu.hpp (Channel struct), sfc/cpu/io.cpp
 //            (readDMA / writeDMA), sfc/cpu/dma.cpp
-// ============================================================================
 
 #include <cstdint>
 #include <functional>
@@ -22,7 +20,6 @@ namespace snes::core {
 
 class MemoryBus;  // forward — needed for DMA transfer engine
 
-// ============================================================================
 // DmaChannel — per-channel register state
 //
 // Matches bsnes CPU::Channel register layout:
@@ -39,11 +36,8 @@ class MemoryBus;  // forward — needed for DMA transfer engine
 //   $43xA  NTRLx    — HDMA line counter
 //   $43xB  ???x     — unused / unknown register (readable/writable)
 //   $43xF           — mirror of $43xB
-// ============================================================================
 struct DmaChannel {
-    // -----------------------------------------------------------------------
     // $43x0 DMAPx — control register
-    // -----------------------------------------------------------------------
     uint8_t transferMode    = 7;  // bits 2-0: transfer pattern (0-7)
     bool    fixedTransfer   = true;  // bit 3: 1 = A-bus address not incremented
     bool    reverseTransfer = true;  // bit 4: 0 = increment, 1 = decrement (when not fixed)
@@ -51,59 +45,41 @@ struct DmaChannel {
     bool    indirect        = true;  // bit 6: HDMA indirect mode
     bool    direction       = true;  // bit 7: 0 = A→B (CPU→PPU), 1 = B→A (PPU→CPU)
 
-    // -----------------------------------------------------------------------
     // $43x1 BBADx — B-bus address (low byte; CPU reads/writes $2100|targetAddress)
-    // -----------------------------------------------------------------------
     uint8_t targetAddress = 0xFF;
 
-    // -----------------------------------------------------------------------
     // $43x2-$43x3 A1TxL/H — A-bus source address (16-bit)
-    // -----------------------------------------------------------------------
     uint16_t sourceAddress = 0xFFFF;
 
-    // -----------------------------------------------------------------------
     // $43x4 A1Bx — A-bus source bank
-    // -----------------------------------------------------------------------
     uint8_t sourceBank = 0xFF;
 
-    // -----------------------------------------------------------------------
     // $43x5-$43x6 DASxL/H — byte count (GP-DMA) or indirect address (HDMA)
     //
     // bsnes uses a union; both fields share the same 16 bits.
     // For GP-DMA: transferSize is the number of bytes to transfer (0 = 65536).
     // For HDMA:   indirectAddress is read from the HDMA table.
-    // -----------------------------------------------------------------------
     uint16_t transferSize = 0xFFFF;  // alias: indirectAddress
 
     // Convenience accessors for the HDMA alias
     uint16_t indirectAddress() const noexcept { return transferSize; }
     void setIndirectAddress(uint16_t v) noexcept { transferSize = v; }
 
-    // -----------------------------------------------------------------------
     // $43x7 DASBx — HDMA indirect bank
-    // -----------------------------------------------------------------------
     uint8_t indirectBank = 0xFF;
 
-    // -----------------------------------------------------------------------
     // $43x8-$43x9 A2AxL/H — HDMA table current address
-    // -----------------------------------------------------------------------
     uint16_t hdmaAddress = 0xFFFF;
 
-    // -----------------------------------------------------------------------
     // $43xA NTRLx — HDMA line counter
     //   bit 7: repeat flag
     //   bits 6-0: line count
-    // -----------------------------------------------------------------------
     uint8_t lineCounter = 0xFF;
 
-    // -----------------------------------------------------------------------
     // $43xB / $43xF — unknown register (readable/writable, $43xF mirrors it)
-    // -----------------------------------------------------------------------
     uint8_t unknown = 0xFF;
 
-    // -----------------------------------------------------------------------
     // Non-register state — managed by $420B/$420C writes and transfer engine
-    // -----------------------------------------------------------------------
     bool dmaEnable  = false;  // set by $420B, cleared after transfer completes
     bool hdmaEnable = false;  // set by $420C
 
@@ -111,9 +87,7 @@ struct DmaChannel {
     bool hdmaCompleted  = false;  // set when line counter reaches 0
     bool hdmaDoTransfer = false;  // set when a transfer should occur this scanline
 
-    // -----------------------------------------------------------------------
     // Pack/unpack $43x0 DMAPx register
-    // -----------------------------------------------------------------------
     uint8_t readControl() const noexcept {
         return static_cast<uint8_t>(
             (transferMode & 7)
@@ -134,9 +108,7 @@ struct DmaChannel {
         direction       = (data >> 7) & 1;
     }
 
-    // -----------------------------------------------------------------------
     // Reset to power-on defaults (all 0xFF per bsnes)
-    // -----------------------------------------------------------------------
     void Reset() noexcept {
         writeControl(0xFF);
         targetAddress = 0xFF;
@@ -154,9 +126,7 @@ struct DmaChannel {
     }
 };
 
-// ============================================================================
 // DmaController — owns 8 DMA channels + register I/O + transfer engine
-// ============================================================================
 class DmaController {
 public:
     DmaController();
@@ -165,25 +135,19 @@ public:
     /// Reset all 8 channels to power-on state.
     void Reset();
 
-    // -----------------------------------------------------------------------
     // Bus connection — must be set before any transfers can occur.
     // The MemoryBus pointer is non-owning and must outlive this object.
-    // -----------------------------------------------------------------------
     void SetBus(MemoryBus* bus) noexcept { bus_ = bus; }
     MemoryBus* Bus() const noexcept { return bus_; }
 
-    // -----------------------------------------------------------------------
     // Register read/write — $4300-$437F
     //
     // These are mapped onto the bus by MemoryBus::MapDma().
     // The openBus parameter is the CPU I/O MDR for unrecognized addresses.
-    // -----------------------------------------------------------------------
     uint8_t Read(uint32_t addr, uint8_t openBus);
     void    Write(uint32_t addr, uint8_t data);
 
-    // -----------------------------------------------------------------------
     // Channel access
-    // -----------------------------------------------------------------------
     DmaChannel&       Channel(int n)       noexcept { return channels_[n & 7]; }
     const DmaChannel& Channel(int n) const noexcept { return channels_[n & 7]; }
 
@@ -192,13 +156,10 @@ public:
     bool AnyHdmaEnabled() const noexcept;
     bool AnyHdmaActive()  const noexcept;
 
-    // -----------------------------------------------------------------------
     // $420B/$420C write helpers — called by CpuIoRegisters callbacks
-    // -----------------------------------------------------------------------
     void EnableDma(uint8_t channelMask);
     void EnableHdma(uint8_t channelMask);
 
-    // -----------------------------------------------------------------------
     // GP-DMA transfer engine
     //
     // RunDma() executes all enabled DMA channels in priority order (0-7).
@@ -210,10 +171,8 @@ public:
     //
     // After completion, dmaEnable is cleared for each channel and
     // transferSize is 0x0000.
-    // -----------------------------------------------------------------------
     uint32_t RunDma();
 
-    // -----------------------------------------------------------------------
     // HDMA lifecycle
     //
     // HDMA is horizontal-blank DMA — automatic per-scanline transfers
@@ -229,7 +188,6 @@ public:
     // Each method returns the number of master clock cycles consumed.
     //
     // Reference: bsnes sfc/cpu/dma.cpp
-    // -----------------------------------------------------------------------
 
     /// Called at frame start — clears hdmaCompleted and hdmaDoTransfer.
     /// No bus access; returns 0 cycles.
@@ -248,31 +206,23 @@ public:
     /// Returns master cycles consumed (8 overhead + per-channel reads/writes).
     uint32_t HdmaRun();
 
-    // -----------------------------------------------------------------------
     // A-bus address validation
-    // -----------------------------------------------------------------------
     static bool ValidA(uint32_t address) noexcept;
 
-    // -----------------------------------------------------------------------
     // WRAM-to-WRAM transfer validity check
-    // -----------------------------------------------------------------------
     static bool ValidWramTransfer(uint8_t bBusAddr, uint32_t aBusAddr) noexcept;
 
-    // -----------------------------------------------------------------------
     // Transfer mode byte counts (used by both GP-DMA and HDMA)
     //
     // Mode: 0  1  2  3  4  5  6  7
     // Len:  1  2  2  4  4  4  2  4
-    // -----------------------------------------------------------------------
     static constexpr uint8_t kTransferLengths[8] = {1, 2, 2, 4, 4, 4, 2, 4};
 
 private:
     DmaChannel channels_[8];
     MemoryBus* bus_ = nullptr;
 
-    // -----------------------------------------------------------------------
     // Internal transfer helpers (shared by GP-DMA and HDMA)
-    // -----------------------------------------------------------------------
 
     /// Read from A-bus (24-bit address). Returns 0x00 if address invalid.
     uint8_t ReadA(uint32_t address);
@@ -293,9 +243,7 @@ private:
     /// Execute GP-DMA for a single channel. Returns cycles consumed.
     uint32_t RunChannelDma(DmaChannel& ch);
 
-    // -----------------------------------------------------------------------
     // HDMA internal helpers
-    // -----------------------------------------------------------------------
 
     /// Check if any channel with index > channelIdx is still active.
     /// Used for early-exit optimization in indirect table reload.

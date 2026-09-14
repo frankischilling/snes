@@ -1,4 +1,3 @@
-// ============================================================================
 // Dsp.cpp — SNES S-DSP Implementation
 //
 // Implements the complete SNES audio DSP in "fast" (batch) mode:
@@ -6,16 +5,13 @@
 // Register writes take effect at sample boundaries.
 //
 // Reference: bsnes sfc/dsp/SPC_DSP.cpp
-// ============================================================================
 
 #include "snes/core/Dsp.hpp"
 #include <cstring>
 
 namespace snes::core {
 
-// ============================================================================
 // Static tables
-// ============================================================================
 
 // 512-entry half-Gaussian interpolation table
 static constexpr int16_t kGauss[512] = {
@@ -100,9 +96,7 @@ static constexpr uint8_t kInitialRegs[128] = {
     0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
 };
 
-// ============================================================================
 // Constructor / Power / SoftReset
-// ============================================================================
 
 Dsp::Dsp() {
     Power();
@@ -137,9 +131,7 @@ void Dsp::SoftReset() {
     std::memset(echoHist_, 0, sizeof(echoHist_));
 }
 
-// ============================================================================
 // Register access
-// ============================================================================
 
 uint8_t Dsp::Read(uint8_t addr) const {
     return regs_[addr & 0x7F];
@@ -168,9 +160,7 @@ void Dsp::Write(uint8_t addr, uint8_t data) {
     }
 }
 
-// ============================================================================
 // Output buffer management
-// ============================================================================
 
 void Dsp::SetOutput(int16_t* buffer, int maxSamples) {
     outBuf_     = buffer;
@@ -178,9 +168,7 @@ void Dsp::SetOutput(int16_t* buffer, int maxSamples) {
     samplesWritten_ = 0;
 }
 
-// ============================================================================
 // Counter system
-// ============================================================================
 
 void Dsp::runCounters() {
     if (--counter_ < 0)
@@ -191,9 +179,7 @@ bool Dsp::readCounter(int rate) const {
     return ((unsigned)counter_ + kCounterOffsets[rate]) % kCounterRates[rate] == 0;
 }
 
-// ============================================================================
 // Helpers
-// ============================================================================
 
 int Dsp::clamp16(int value) {
     if (static_cast<int16_t>(value) != value)
@@ -216,13 +202,11 @@ void Dsp::ramWriteWord(uint16_t addr, int16_t value) {
     ram_[(addr + 1) & 0xFFFF] = static_cast<uint8_t>(value >> 8);
 }
 
-// ============================================================================
 // BRR decoding — decode 4 samples from 2 BRR data bytes
 //
 // header:    BRR block header byte (shift in bits 7-4, filter in bits 3-2)
 // brrByte1:  first data byte (high nybbles)
 // brrByte2:  second data byte (low nybbles)
-// ============================================================================
 
 void Dsp::decodeBrr(Voice& v, int header, int brrByte1, int brrByte2) {
     // Arrange 4 nybbles in 0xABCD order
@@ -278,9 +262,7 @@ void Dsp::decodeBrr(Voice& v, int header, int brrByte1, int brrByte2) {
     }
 }
 
-// ============================================================================
 // Gaussian interpolation — 4-point interpolation using half-Gaussian table
-// ============================================================================
 
 int Dsp::interpolate(const Voice& v) const {
     int const* in = &v.buf[(v.interpPos >> 12) + v.bufPos];
@@ -302,9 +284,7 @@ int Dsp::interpolate(const Voice& v) const {
     return out;
 }
 
-// ============================================================================
 // ADSR/GAIN envelope processing
-// ============================================================================
 
 void Dsp::runEnvelope(Voice& v, int adsr0, int adsr1, int gain) {
     int env = v.env;
@@ -378,12 +358,10 @@ void Dsp::runEnvelope(Voice& v, int adsr0, int adsr1, int gain) {
         v.env = env;
 }
 
-// ============================================================================
 // Echo processing — FIR filter, feedback, write, mix, output
-// ============================================================================
 
 void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
-    // --- echo_22: advance history, read left echo, start FIR ---
+    // echo_22: advance history, read left echo, start FIR
     echoHistIdx_ = (echoHistIdx_ + 1) % EchoHistSize;
 
     uint16_t echoAddr = static_cast<uint16_t>(
@@ -397,7 +375,7 @@ void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
         echoHist_[echoHistIdx_ + EchoHistSize][ch] = s >> 1;
     }
 
-    // --- echo_22 through echo_25: 8-tap FIR filter ---
+    // echo_22 through echo_25: 8-tap FIR filter
     // Compute FIR exactly as bsnes does (with int16_t truncation between taps 6 & 7)
     auto calcFir = [&](int i, int ch) -> int {
         return (echoHist_[echoHistIdx_ + i + 1][ch]
@@ -416,7 +394,7 @@ void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
         echoIn[ch] = sum & ~1;
     }
 
-    // --- echo_26: mix output + echo feedback ---
+    // echo_26: mix output + echo feedback
     int finalOut[2];
     for (int ch = 0; ch < 2; ch++) {
         // Main output: (mainOut * MVOL >> 7) + (echoIn * EVOL >> 7)
@@ -436,13 +414,13 @@ void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
         echoOut[ch] = sum & ~1;
     }
 
-    // --- echo_27: apply global mute ---
+    // echo_27: apply global mute
     if (reg(kFlg) & 0x40) {
         finalOut[0] = 0;
         finalOut[1] = 0;
     }
 
-    // --- echo_29: advance echo offset, write echo ---
+    // echo_29: advance echo offset, write echo
     if (!echoOffset_)
         echoLength_ = (reg(kEdl) & 0x0F) * 0x800;
 
@@ -458,7 +436,7 @@ void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
         }
     }
 
-    // --- Write to output buffer ---
+    // Write to output buffer
     if (outBuf_ && samplesWritten_ < outBufSize_) {
         outBuf_[samplesWritten_ * 2 + 0] = static_cast<int16_t>(finalOut[0]);
         outBuf_[samplesWritten_ * 2 + 1] = static_cast<int16_t>(finalOut[1]);
@@ -466,22 +444,20 @@ void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
     }
 }
 
-// ============================================================================
 // RunSample — process all 8 voices + echo + output for one stereo sample
-// ============================================================================
 
 void Dsp::RunSample() {
-    // === misc_27-28: read shared registers ===
+    // misc_27-28: read shared registers
     int tPmon = reg(kPmon) & 0xFE;  // Voice 0 cannot be pitch-modulated
     int tNon  = reg(kNon);
     int tEon  = reg(kEon);
     int tDir  = reg(kDir);
 
-    // === misc_29: toggle every-other-sample flag ===
+    // misc_29: toggle every-other-sample flag
     if ((everyOther_ ^= 1) != 0)
         newKon_ &= ~kon_;
 
-    // === misc_30: latch KON/KOFF, run counters, noise ===
+    // misc_30: latch KON/KOFF, run counters, noise
     int tKoff = 0;
     if (everyOther_) {
         kon_  = newKon_;
@@ -496,7 +472,7 @@ void Dsp::RunSample() {
         noise_ = (feedback & 0x4000) ^ (noise_ >> 1);
     }
 
-    // === Process all 8 voices ===
+    // Process all 8 voices
     int mainOut[2] = {0, 0};
     int echoOut[2] = {0, 0};
 
@@ -504,7 +480,7 @@ void Dsp::RunSample() {
         Voice& v = voices_[vi];
         int vbit = 1 << vi;
 
-        // --- V1/V2: read source directory, pitch, adsr0 ---
+        // V1/V2: read source directory, pitch, adsr0
         int tSrcn   = vreg(vi, kSrcn);
         int tDirAddr = (tDir * 0x100 + tSrcn * 4) & 0xFFFF;
 
@@ -517,14 +493,14 @@ void Dsp::RunSample() {
         int tAdsr0 = vreg(vi, kAdsr0);
         int tPitch = vreg(vi, kPitchL);
 
-        // --- V3a: complete pitch ---
+        // V3a: complete pitch
         tPitch += (vreg(vi, kPitchH) & 0x3F) << 8;
 
-        // --- V3b: read BRR header and data byte ---
+        // V3b: read BRR header and data byte
         int tBrrHeader = ramRead(static_cast<uint16_t>(v.brrAddr));
         int tBrrByte   = ramRead(static_cast<uint16_t>((v.brrAddr + v.brrOffset) & 0xFFFF));
 
-        // --- V3c: main voice processing ---
+        // V3c: main voice processing
 
         // Pitch modulation (using previous voice's output)
         if (tPmon & vbit)
@@ -580,7 +556,7 @@ void Dsp::RunSample() {
             runEnvelope(v, tAdsr0, vreg(vi, kAdsr1), vreg(vi, kGain));
         }
 
-        // --- V4: BRR decode + advance interpPos + output left ---
+        // V4: BRR decode + advance interpPos + output left
         int tLooped = 0;
         if (v.interpPos >= 0x4000) {
             int brrByte2 = ramRead(
@@ -617,7 +593,7 @@ void Dsp::RunSample() {
             }
         }
 
-        // --- V5-V9: update registers ---
+        // V5-V9: update registers
         // ENDX
         int endx = regs_[kEndx] | tLooped;
         if (v.konDelay == 5)
@@ -634,7 +610,7 @@ void Dsp::RunSample() {
         v.output = tOutput;
     }
 
-    // === Echo processing + mixing + output ===
+    // Echo processing + mixing + output
     processEcho(mainOut, echoOut);
 }
 

@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // IrqController.hpp — SNES NMI / IRQ dispatch state machine
 //
 // Implements the NMI/IRQ evaluation logic from bsnes's irq.cpp:
@@ -41,7 +40,6 @@
 //   6. After each CPU Step: check NmiTest/IrqTest → drive SnesCpu interrupts
 //
 // Reference: bsnes sfc/cpu/irq.cpp
-// ============================================================================
 
 #include <cstdint>
 
@@ -54,9 +52,7 @@ public:
     /// Reset all state to power-on defaults.
     void Reset();
 
-    // -----------------------------------------------------------------------
     // Periodic polling — called every 4 master clocks by the timing system
-    // -----------------------------------------------------------------------
 
     /// Evaluate NMI and IRQ conditions based on current counters.
     /// @param h       Current H counter (master clocks, 0..hperiod-1)
@@ -65,18 +61,14 @@ public:
     /// @param hperiod Width of current scanline in master clocks
     void Poll(uint16_t h, uint16_t v, uint16_t vdisp, uint16_t hperiod);
 
-    // -----------------------------------------------------------------------
     // NMITIMEN ($4200) write handler
-    // -----------------------------------------------------------------------
 
     /// Called when $4200 is written.  Updates enable flags and handles
     /// edge cases (NMI enable rising edge while NMI line is already active,
     /// IRQ mode changes, irqLock).
     void NmitimenUpdate(uint8_t data);
 
-    // -----------------------------------------------------------------------
     // Register read hooks — called by CpuIoRegisters
-    // -----------------------------------------------------------------------
 
     /// $4210 RDNMI — returns true if NMI flag is set, then performs
     /// read-and-clear with hold protection (flag is NOT cleared if hold
@@ -87,9 +79,7 @@ public:
     /// read-and-clear with hold protection.
     bool Timeup();
 
-    // -----------------------------------------------------------------------
     // CPU lastCycle() interface
-    // -----------------------------------------------------------------------
 
     /// Test if NMI should fire.  Returns true and clears the transition
     /// flag.  The caller should then assert NMI on the CPU.
@@ -100,9 +90,7 @@ public:
     /// regardless. @param iFlagClear  true if the CPU's I flag is cleared
     bool IrqTest(bool iFlagClear);
 
-    // -----------------------------------------------------------------------
     // IRQ lock
-    // -----------------------------------------------------------------------
 
     /// Returns true if the interrupt lock is active (suppresses NmiTest/IrqTest).
     bool IrqLocked() const noexcept { return irqLock_; }
@@ -111,9 +99,7 @@ public:
     /// integration layer after calling NmiTest/IrqTest once.
     void SetIrqLock(bool v) noexcept { irqLock_ = v; }
 
-    // -----------------------------------------------------------------------
     // H/V timer target configuration (from $4207-$420A writes)
-    // -----------------------------------------------------------------------
 
     /// Set the H-counter IRQ target (9-bit raw value, 0-339 dot range).
     /// Internally converted to master clocks: (raw + 1) << 2.
@@ -131,9 +117,7 @@ public:
     /// Get V-counter target (9-bit raw scanline number).
     uint16_t VTime() const noexcept { return vtime_; }
 
-    // -----------------------------------------------------------------------
     // State queries
-    // -----------------------------------------------------------------------
 
     bool NmiEnabled()  const noexcept { return nmiEnable_; }
     bool HIrqEnabled() const noexcept { return hirqEnable_; }

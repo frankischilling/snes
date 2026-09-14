@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // AutoJoypad.hpp — SNES auto-joypad polling state machine
 //
 // Implements the automatic controller polling that occurs at VBlank start
@@ -27,7 +26,6 @@
 // Reference: bsnes sfc/cpu/timing.cpp  (joypadEdge)
 //            bsnes sfc/cpu/io.cpp      ($4200, $4212, $4218-$421F)
 //            bsnes sfc/controller/gamepad/gamepad.cpp (serial bit order)
-// ============================================================================
 
 #include <cstdint>
 #include <functional>
@@ -44,9 +42,7 @@ public:
     /// Reset all state to power-on defaults.
     void Reset();
 
-    // -----------------------------------------------------------------------
     // Timing interface
-    // -----------------------------------------------------------------------
 
     /// Called every 128 master clocks by the timing system.
     /// Implements the 34-step state machine (counter 0..33).
@@ -59,9 +55,7 @@ public:
     /// Matches bsnes: status.autoJoypadCounter = 33 at vcounter()==0.
     void FrameBegin();
 
-    // -----------------------------------------------------------------------
     // $4200 NMITIMEN interaction
-    // -----------------------------------------------------------------------
 
     /// Set the auto-joypad poll enable flag (NMITIMEN bit 0).
     /// If disabled during active polling (counter >= 2), aborts polling.
@@ -70,27 +64,21 @@ public:
     /// Returns the current auto-joypad poll enable state.
     bool AutoJoypadPollEnabled() const noexcept { return autoJoypadPoll_; }
 
-    // -----------------------------------------------------------------------
     // Input source
-    // -----------------------------------------------------------------------
 
     /// Callback to snapshot input state for a controller port (0 or 1).
     /// Called once per port at the start of each polling sequence.
     using InputCallback = std::function<InputState(int port)>;
     void SetInputCallback(InputCallback cb) { onInput_ = std::move(cb); }
 
-    // -----------------------------------------------------------------------
     // Output registers ($4218-$421F)
-    // -----------------------------------------------------------------------
 
     uint16_t Joy1() const noexcept { return joy1_; }
     uint16_t Joy2() const noexcept { return joy2_; }
     uint16_t Joy3() const noexcept { return joy3_; }
     uint16_t Joy4() const noexcept { return joy4_; }
 
-    // -----------------------------------------------------------------------
     // Status
-    // -----------------------------------------------------------------------
 
     /// Current state machine counter (0-33; 33 = inactive).
     uint8_t Counter() const noexcept { return counter_; }
@@ -99,9 +87,7 @@ public:
     /// Used for HVBJOY ($4212) bit 0.
     bool IsPolling() const noexcept { return autoJoypadPoll_ && counter_ < 33; }
 
-    // -----------------------------------------------------------------------
     // Utility
-    // -----------------------------------------------------------------------
 
     /// Convert an InputState to the 16-bit SNES joypad register format.
     /// D-pad opposition is enforced (Up+Down → neither, Left+Right → neither).

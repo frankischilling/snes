@@ -1,17 +1,13 @@
-// ============================================================================
 // Dsp1.cpp — DSP-1 (uPD77C25) coprocessor HLE implementation
 //
 // Ported from bsnes dsp1emu.cpp.
 // Original research by Overload, The Dumper, Neviksti, Andreas Naive.
-// ============================================================================
 
 #include "snes/core/Dsp1.hpp"
 
 namespace snes::core {
 
-// ============================================================================
 // Construction / Reset
-// ============================================================================
 
 Dsp1::Dsp1() { Reset(); }
 
@@ -24,9 +20,7 @@ void Dsp1::Reset() {
     std::memset(&shared_, 0, sizeof(SharedData));
 }
 
-// ============================================================================
 // Register access
-// ============================================================================
 
 uint8_t Dsp1::GetSr() {
     srLowByteAccess_ = ~srLowByteAccess_;
@@ -46,9 +40,7 @@ void Dsp1::SetDr(uint8_t value) {
     fsmStep(false, value);
 }
 
-// ============================================================================
 // Finite State Machine
-// ============================================================================
 
 void Dsp1::fsmStep(bool read, uint8_t& data) {
     if (0 == (sr_ & RQM)) return;
@@ -133,9 +125,7 @@ void Dsp1::fsmStep(bool read, uint8_t& data) {
         sr_ &= ~RQM;
 }
 
-// ============================================================================
 // Command table
-// ============================================================================
 
 const Dsp1::Command Dsp1::kCommandTable[0x40] = {
     {&Dsp1::multiply, 2, 1},       // 0x00
@@ -207,9 +197,7 @@ const Dsp1::Command Dsp1::kCommandTable[0x40] = {
     {&Dsp1::memoryDump, 1, 1024},  // 0x3f
 };
 
-// ============================================================================
 // DSP-1 Commands
-// ============================================================================
 
 void Dsp1::memoryTest(int16_t* input, int16_t* output) {
     output[0] = 0x0000;
@@ -310,9 +298,7 @@ void Dsp1::polar(int16_t* input, int16_t* output) {
     output[1] = Y; output[2] = Z;
 }
 
-// ============================================================================
 // Attitude matrices
-// ============================================================================
 
 void Dsp1::attitudeA(int16_t* input, int16_t* output) {
     int16_t& S = input[0]; int16_t& Rz = input[1]; int16_t& Ry = input[2]; int16_t& Rx = input[3];
@@ -365,9 +351,7 @@ void Dsp1::attitudeC(int16_t* input, int16_t* output) {
     shared_.MatrixC[2][2] = static_cast<int16_t>((S * CosRx >> 15) * CosRy >> 15);
 }
 
-// ============================================================================
 // Objective (global → object coordinates)
-// ============================================================================
 
 void Dsp1::objectiveA(int16_t* input, int16_t* output) {
     int16_t& X = input[0]; int16_t& Y = input[1]; int16_t& Z = input[2];
@@ -390,9 +374,7 @@ void Dsp1::objectiveC(int16_t* input, int16_t* output) {
     output[2] = static_cast<int16_t>((shared_.MatrixC[0][2] * X >> 15) + (shared_.MatrixC[1][2] * Y >> 15) + (shared_.MatrixC[2][2] * Z >> 15));
 }
 
-// ============================================================================
 // Subjective (object → global coordinates)
-// ============================================================================
 
 void Dsp1::subjectiveA(int16_t* input, int16_t* output) {
     int16_t& F = input[0]; int16_t& L = input[1]; int16_t& U = input[2];
@@ -415,9 +397,7 @@ void Dsp1::subjectiveC(int16_t* input, int16_t* output) {
     output[2] = static_cast<int16_t>((shared_.MatrixC[2][0] * F >> 15) + (shared_.MatrixC[2][1] * L >> 15) + (shared_.MatrixC[2][2] * U >> 15));
 }
 
-// ============================================================================
 // Scalar products
-// ============================================================================
 
 void Dsp1::scalarA(int16_t* input, int16_t* output) {
     int16_t& X = input[0]; int16_t& Y = input[1]; int16_t& Z = input[2];
@@ -434,9 +414,7 @@ void Dsp1::scalarC(int16_t* input, int16_t* output) {
     output[0] = static_cast<int16_t>((X * shared_.MatrixC[0][0] + Y * shared_.MatrixC[1][0] + Z * shared_.MatrixC[2][0]) >> 15);
 }
 
-// ============================================================================
 // Gyrate
-// ============================================================================
 
 void Dsp1::gyrate(int16_t* input, int16_t* output) {
     int16_t& Az = input[0]; int16_t& Ax = input[1]; int16_t& Ay = input[2];
@@ -465,9 +443,7 @@ void Dsp1::gyrate(int16_t* input, int16_t* output) {
     output[2] = static_cast<int16_t>(Ay + denormalizeAndClip(C, E) + L); // Ry
 }
 
-// ============================================================================
 // Projection: parameter, raster, target, project
-// ============================================================================
 
 const int16_t Dsp1::kMaxAZS_Exp[16] = {
     0x38b4, 0x38b7, 0x38ba, 0x38be, 0x38c0, 0x38c4, 0x38c7, 0x38ca,
@@ -693,9 +669,7 @@ void Dsp1::project(int16_t* input, int16_t* output) {
     output[2] = denormalizeAndClip(C6, static_cast<int16_t>(E4 + shared_.E_Les - E2 - 7)); // M
 }
 
-// ============================================================================
 // Auxiliary math functions
-// ============================================================================
 
 int16_t Dsp1::sinLut(int16_t Angle) {
     if (Angle < 0) {
@@ -815,9 +789,7 @@ int16_t Dsp1::shiftR(int16_t C, int16_t E) {
     return static_cast<int16_t>(C * static_cast<int16_t>(kDataRom[0x0031 + E]) >> 15);
 }
 
-// ============================================================================
 // Lookup tables
-// ============================================================================
 
 const int16_t Dsp1::kSinTable[256] = {
     0x0000,  0x0324,  0x0647,  0x096a,  0x0c8b,  0x0fab,  0x12c8,  0x15e2,

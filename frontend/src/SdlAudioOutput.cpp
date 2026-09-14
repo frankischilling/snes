@@ -1,6 +1,4 @@
-// ============================================================================
 // SdlAudioOutput.cpp — SDL3-based audio output implementation
-// ============================================================================
 
 #include "SdlAudioOutput.hpp"
 
@@ -10,9 +8,7 @@
 
 namespace snes::frontend {
 
-// ============================================================================
 // Construction / Destruction
-// ============================================================================
 
 SdlAudioOutput::SdlAudioOutput() : SdlAudioOutput(Config{}) {}
 
@@ -51,9 +47,7 @@ SdlAudioOutput::~SdlAudioOutput() {
     }
 }
 
-// ============================================================================
 // IAudioOutput::Submit
-// ============================================================================
 
 void SdlAudioOutput::Submit(const snes::core::AudioBuffer& buffer) {
     if (!stream_) return;
@@ -88,9 +82,7 @@ void SdlAudioOutput::Submit(const snes::core::AudioBuffer& buffer) {
     StartIfReady();
 }
 
-// ============================================================================
 // Playback control
-// ============================================================================
 
 void SdlAudioOutput::Resume() {
     playbackRequested_ = true;

@@ -1,5 +1,4 @@
 #pragma once
-// ============================================================================
 // Dsp1.hpp — DSP-1 (uPD77C25) coprocessor HLE
 //
 // High-level emulation of the DSP-1 math coprocessor used in SNES games
@@ -8,7 +7,6 @@
 //
 // Memory-mapped at banks $00-$1F,$80-$9F : $6000-$7FFF.
 // Even addresses → Data Register (DR), Odd addresses → Status Register (SR).
-// ============================================================================
 
 #include <cstdint>
 #include <cstring>

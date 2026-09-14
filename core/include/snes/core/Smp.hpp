@@ -1,4 +1,3 @@
-// ============================================================================
 // Smp.hpp — SNES Sound Module Processor (Sony S-SMP / CXP1100Q-1)
 //
 // The SMP is the SNES APU wrapper that inherits the SPC700 processor core
@@ -14,7 +13,6 @@
 //   Each direction has its own set of latches — no contention.
 //
 // Reference: bsnes sfc/smp/smp.hpp, sfc/smp/io.cpp, sfc/smp/memory.cpp
-// ============================================================================
 
 #pragma once
 
@@ -28,7 +26,6 @@ class Dsp;  // Forward declaration
 
 class Smp : public Spc700 {
 public:
-    // ========================================================================
     // Timer — 4-stage pipeline (following bsnes's SMP::Timer)
     //
     // Template parameter Frequency: number of SMP clocks per stage0 overflow.
@@ -40,7 +37,6 @@ public:
     // Line:    edge-detection latch — falling-edge triggers stage 2
     // Stage 2: 8-bit divider counter — counts to target, then resets
     // Stage 3: 4-bit output counter — read-and-clear via $FD-$FF
-    // ========================================================================
     template <unsigned Frequency>
     struct Timer {
         uint8_t  stage0 = 0;    // Clock accumulator
@@ -61,55 +57,39 @@ public:
 
     Smp();
 
-    // ========================================================================
     // Bus interface (Spc700 pure virtuals)
-    // ========================================================================
     void    Idle() override;
     uint8_t Read(uint16_t address) override;
     void    Write(uint16_t address, uint8_t data) override;
 
-    // ========================================================================
     // CPU-side port access — called by MemoryBus for $2140-$2143
     //
     // portRead:  CPU reads $2140+n → returns what SMP wrote to $F4+n
     // portWrite: CPU writes $2140+n → sets data for SMP to read from $F4+n
-    // ========================================================================
     uint8_t PortRead(uint8_t port) const;
     void    PortWrite(uint8_t port, uint8_t data);
 
-    // ========================================================================
     // Timer stepping — call after each SMP bus cycle to advance timers
     // 'clocks' is the number of ideal timer ticks for this bus operation.
     // Default wait states: 2 ticks per half-cycle.
-    // ========================================================================
     void StepTimers(unsigned clocks);
 
-    // ========================================================================
     // DSP connection
-    // ========================================================================
     void SetDsp(Dsp& dsp) { dsp_ = &dsp; }
 
-    // ========================================================================
     // Clock constants
-    // ========================================================================
     static constexpr uint64_t kClockFrequency    = 1024000; // ~1.024 MHz
     static constexpr int      kDspSampleInterval = 32;      // SMP clocks per DSP sample
 
-    // ========================================================================
     // Batch execution — run SMP until CycleCount() >= targetCycles.
     // Each Step() executes one SPC700 instruction (consuming 2-8+ bus cycles).
     // DSP samples and timers are ticked automatically during bus operations.
-    // ========================================================================
     void RunUntil(uint64_t targetCycles);
 
-    // ========================================================================
     // Power-on reset
-    // ========================================================================
     void Power();
 
-    // ========================================================================
     // Direct access (for testing / debugging)
-    // ========================================================================
     uint8_t*       Ram()       noexcept { return ram_.data(); }
     const uint8_t* Ram() const noexcept { return ram_.data(); }
     static constexpr size_t RamSize = 0x10000; // 64 KB
@@ -117,9 +97,7 @@ public:
     static constexpr size_t IplRomSize = 64;
     const uint8_t* IplRom() const noexcept { return iplRom_.data(); }
 
-    // ========================================================================
     // I/O state (for testing / inspection)
-    // ========================================================================
     struct IO {
         // $00F0 — TEST register (write-only, requires P=0)
         bool    timersDisable      = false;
@@ -156,21 +134,15 @@ public:
     const Timer<16>&  GetTimer2() const noexcept { return timer2_; }
 
 private:
-    // ========================================================================
     // Internal I/O dispatch
-    // ========================================================================
     uint8_t readIO(uint16_t address);
     void    writeIO(uint16_t address, uint8_t data);
 
-    // ========================================================================
     // Internal RAM access (handles IPL ROM overlay)
-    // ========================================================================
     uint8_t readRam(uint16_t address) const;
     void    writeRam(uint16_t address, uint8_t data);
 
-    // ========================================================================
     // State
-    // ========================================================================
 
     // 64 KB APU RAM
     std::array<uint8_t, RamSize> ram_{};

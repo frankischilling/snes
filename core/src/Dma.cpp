@@ -1,4 +1,3 @@
-// ============================================================================
 // Dma.cpp — SNES DMA controller register I/O + GP-DMA transfer engine
 //
 // Register read/write follows bsnes:
@@ -14,16 +13,13 @@
 //   - Transfer size decrements to 0 (0 means 65536 bytes)
 //
 // Reference: bsnes sfc/cpu/io.cpp readDMA / writeDMA, sfc/cpu/dma.cpp
-// ============================================================================
 
 #include "snes/core/Dma.hpp"
 #include "snes/core/MemoryBus.hpp"
 
 namespace snes::core {
 
-// ============================================================================
 // Construction / Reset
-// ============================================================================
 DmaController::DmaController() {
     Reset();
 }
@@ -34,12 +30,10 @@ void DmaController::Reset() {
     }
 }
 
-// ============================================================================
 // Register read — $4300-$437F
 //
 // bsnes: addr >> 4 & 7 selects channel, addr & 0xFF8F selects register.
 // Unrecognized addresses return open bus.
-// ============================================================================
 uint8_t DmaController::Read(uint32_t addr, uint8_t openBus) {
     const int ch = (addr >> 4) & 7;
     const auto& c = channels_[ch];
@@ -99,9 +93,7 @@ uint8_t DmaController::Read(uint32_t addr, uint8_t openBus) {
     }
 }
 
-// ============================================================================
 // Register write — $4300-$437F
-// ============================================================================
 void DmaController::Write(uint32_t addr, uint8_t data) {
     const int ch = (addr >> 4) & 7;
     auto& c = channels_[ch];
@@ -174,9 +166,7 @@ void DmaController::Write(uint32_t addr, uint8_t data) {
     }
 }
 
-// ============================================================================
 // Query helpers
-// ============================================================================
 bool DmaController::AnyDmaEnabled() const noexcept {
     for (int i = 0; i < 8; ++i) {
         if (channels_[i].dmaEnable) return true;
@@ -198,30 +188,24 @@ bool DmaController::AnyHdmaActive() const noexcept {
     return false;
 }
 
-// ============================================================================
 // $420B write — enable GP-DMA channels
 //
 // Each bit enables the corresponding channel.  After setting these flags,
 // the caller should invoke RunDma() to execute the transfers.
-// ============================================================================
 void DmaController::EnableDma(uint8_t channelMask) {
     for (int i = 0; i < 8; ++i) {
         channels_[i].dmaEnable = (channelMask >> i) & 1;
     }
 }
 
-// ============================================================================
 // $420C write — enable HDMA channels
-// ============================================================================
 void DmaController::EnableHdma(uint8_t channelMask) {
     for (int i = 0; i < 8; ++i) {
         channels_[i].hdmaEnable = (channelMask >> i) & 1;
     }
 }
 
-// ============================================================================
 // HDMA reset — called at the start of each frame (V=0)
-// ============================================================================
 static int g_hdmaDiagFrame = 0;
 
 void DmaController::HdmaReset() {
@@ -232,12 +216,10 @@ void DmaController::HdmaReset() {
     g_hdmaDiagFrame++;
 }
 
-// ============================================================================
 // A-bus address validation
 //
 // DMA A-bus reads/writes cannot access certain address ranges.
 // bsnes bit-trick checks from dma.cpp Channel::validA():
-// ============================================================================
 bool DmaController::ValidA(uint32_t address) noexcept {
     // B-bus region: $00-3F,$80-BF:$2100-$21FF
     if ((address & 0x40ff00) == 0x2100) return false;
@@ -250,7 +232,6 @@ bool DmaController::ValidA(uint32_t address) noexcept {
     return true;
 }
 
-// ============================================================================
 // WRAM-to-WRAM transfer validity
 //
 // Transfers where B-bus target is $80 (→ $2180 = WMDATA) and the A-bus
@@ -265,7 +246,6 @@ bool DmaController::ValidA(uint32_t address) noexcept {
 //   valid = addressB != 0x80
 //        || ((addressA & 0xfe0000) != 0x7e0000
 //         && (addressA & 0x40e000) != 0x0000)
-// ============================================================================
 bool DmaController::ValidWramTransfer(uint8_t bBusAddr, uint32_t aBusAddr) noexcept {
     if (bBusAddr != 0x80) return true;
     // B-bus is $2180 (WMDATA) — check if A-bus also points to WRAM
@@ -274,48 +254,39 @@ bool DmaController::ValidWramTransfer(uint8_t bBusAddr, uint32_t aBusAddr) noexc
     return !isWramFull && !isWramLow;
 }
 
-// ============================================================================
 // A-bus read — reads from the 24-bit A-bus address
 //
 // If the address is invalid (B-bus or CPU I/O region), returns 0x00.
 // Updates the bus MDR (open bus).
 // On real hardware this takes 8 master cycles (two 4-cycle half-accesses).
-// ============================================================================
 uint8_t DmaController::ReadA(uint32_t address) {
     if (!ValidA(address)) return 0x00;
     return bus_->Read(address);
 }
 
-// ============================================================================
 // A-bus write — writes to the 24-bit A-bus address
 // Ignored if address is invalid.
-// ============================================================================
 void DmaController::WriteA(uint32_t address, uint8_t data) {
     if (ValidA(address)) {
         bus_->Write(address, data);
     }
 }
 
-// ============================================================================
 // B-bus read — reads from $2100 | address (8-bit B-bus address)
 // If !valid (WRAM-to-WRAM), returns 0x00.
-// ============================================================================
 uint8_t DmaController::ReadB(uint8_t address, bool valid) {
     if (!valid) return 0x00;
     return bus_->Read(0x2100 | address);
 }
 
-// ============================================================================
 // B-bus write — writes to $2100 | address
 // Ignored if !valid.
-// ============================================================================
 void DmaController::WriteB(uint8_t address, uint8_t data, bool valid) {
     if (valid) {
         bus_->Write(0x2100 | address, data);
     }
 }
 
-// ============================================================================
 // Transfer — execute one transfer unit for a channel
 //
 // The B-bus address is derived from targetAddress + an offset that depends
@@ -331,7 +302,6 @@ void DmaController::WriteB(uint8_t address, uint8_t data, bool valid) {
 //   Mode 7: offset = (index >> 1)&1  (same as 3)
 //
 // Reference: bsnes dma.cpp Channel::transfer()
-// ============================================================================
 void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index) {
     uint8_t addressB = ch.targetAddress;
 
@@ -358,7 +328,6 @@ void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index) {
     }
 }
 
-// ============================================================================
 // RunChannelDma — execute GP-DMA for one channel
 //
 // bsnes dma.cpp Channel::dmaRun():
@@ -368,7 +337,6 @@ void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index) {
 //   - Clear dmaEnable when done
 //
 // Returns master clock cycles consumed by this channel.
-// ============================================================================
 uint32_t DmaController::RunChannelDma(DmaChannel& ch) {
     if (!ch.dmaEnable) return 0;
 
@@ -397,7 +365,6 @@ uint32_t DmaController::RunChannelDma(DmaChannel& ch) {
     return cycles;
 }
 
-// ============================================================================
 // RunDma — execute all enabled GP-DMA channels
 //
 // bsnes dma.cpp CPU::dmaRun():
@@ -406,7 +373,6 @@ uint32_t DmaController::RunChannelDma(DmaChannel& ch) {
 //   - Each channel runs to completion before the next starts
 //
 // Returns total master clock cycles consumed.
-// ============================================================================
 uint32_t DmaController::RunDma() {
     if (!bus_ || !AnyDmaEnabled()) return 0;
 
@@ -419,13 +385,10 @@ uint32_t DmaController::RunDma() {
     return totalCycles;
 }
 
-// ============================================================================
 //
 //  HDMA — Horizontal-blank DMA (per-scanline automatic transfers)
 //
-// ============================================================================
 
-// ============================================================================
 // HdmaFinished — check if all channels after channelIdx are done
 //
 // bsnes Channel::hdmaFinished(): walks the linked list of channels after
@@ -433,7 +396,6 @@ uint32_t DmaController::RunDma() {
 // Used as an optimization in indirect mode reload — if no later channel
 // is active, we can skip the second indirect address read on a completed
 // channel.  (In practice this is a minor optimization but matches bsnes.)
-// ============================================================================
 bool DmaController::HdmaFinished(int channelIdx) const noexcept {
     for (int i = channelIdx + 1; i < 8; ++i) {
         if (channels_[i].hdmaEnable && !channels_[i].hdmaCompleted) {
@@ -443,7 +405,6 @@ bool DmaController::HdmaFinished(int channelIdx) const noexcept {
     return true;
 }
 
-// ============================================================================
 // HdmaReload — reload HDMA table entry for a channel
 //
 // bsnes Channel::hdmaReload():
@@ -458,7 +419,6 @@ bool DmaController::HdmaFinished(int channelIdx) const noexcept {
 //         - Read high byte (unless completed and no later channels active)
 //
 // Returns master cycles consumed (8 per A-bus read).
-// ============================================================================
 uint32_t DmaController::HdmaReload(DmaChannel& ch, int channelIdx) {
     uint32_t cycles = 0;
 
@@ -507,7 +467,6 @@ uint32_t DmaController::HdmaReload(DmaChannel& ch, int channelIdx) {
     return cycles;
 }
 
-// ============================================================================
 // HdmaTransfer — execute HDMA data transfer for a single channel
 //
 // bsnes Channel::hdmaTransfer():
@@ -519,7 +478,6 @@ uint32_t DmaController::HdmaReload(DmaChannel& ch, int channelIdx) {
 //   - Indirect mode: data source is [indirectBank:indirectAddress++]
 //
 // Returns master cycles consumed (8 per byte transferred).
-// ============================================================================
 uint32_t DmaController::HdmaTransfer(DmaChannel& ch) {
     if (!(ch.hdmaEnable && !ch.hdmaCompleted)) return 0;
 
@@ -550,7 +508,6 @@ uint32_t DmaController::HdmaTransfer(DmaChannel& ch) {
     return cycles;
 }
 
-// ============================================================================
 // HdmaAdvance — advance HDMA to next scanline
 //
 // bsnes Channel::hdmaAdvance():
@@ -560,7 +517,6 @@ uint32_t DmaController::HdmaTransfer(DmaChannel& ch) {
 //   - Call hdmaReload() — reads next table entry if counter expired
 //
 // Returns master cycles consumed.
-// ============================================================================
 uint32_t DmaController::HdmaAdvance(DmaChannel& ch, int channelIdx) {
     if (!(ch.hdmaEnable && !ch.hdmaCompleted)) return 0;
 
@@ -570,7 +526,6 @@ uint32_t DmaController::HdmaAdvance(DmaChannel& ch, int channelIdx) {
     return HdmaReload(ch, channelIdx);
 }
 
-// ============================================================================
 // HdmaSetup — called at frame start (V=0) after HdmaReset
 //
 // bsnes CPU::hdmaSetup():
@@ -584,7 +539,6 @@ uint32_t DmaController::HdmaAdvance(DmaChannel& ch, int channelIdx) {
 //     - hdmaReload() reads the first table entry
 //
 // Returns master cycles consumed.
-// ============================================================================
 uint32_t DmaController::HdmaSetup() {
     if (!bus_) return 0;
 
@@ -607,7 +561,6 @@ uint32_t DmaController::HdmaSetup() {
     return totalCycles;
 }
 
-// ============================================================================
 // HdmaRun — called at each visible scanline (~H=1104)
 //
 // bsnes CPU::hdmaRun():
@@ -619,7 +572,6 @@ uint32_t DmaController::HdmaSetup() {
 // advances to the next table entry.
 //
 // Returns master cycles consumed.
-// ============================================================================
 uint32_t DmaController::HdmaRun() {
     if (!bus_ || !AnyHdmaActive()) return 0;
 

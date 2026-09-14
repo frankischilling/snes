@@ -1,26 +1,20 @@
-// ============================================================================
 // SnesCpu.cpp — SNES-specific CPU wrapper implementation
 //
 // Implements the Processor65816 virtual bus interface with SNES timing,
 // NMI/IRQ state machine, and cycle counting.
-// ============================================================================
 
 #include "snes/core/SnesCpu.hpp"
 
 namespace snes::core {
 
-// ============================================================================
 // Construction
-// ============================================================================
 
 SnesCpu::SnesCpu(ICpuBus& bus)
     : bus_(bus)
 {
 }
 
-// ============================================================================
 // Reset
-// ============================================================================
 
 void SnesCpu::Reset() {
     power();
@@ -45,9 +39,7 @@ void SnesCpu::Reset() {
     addClocks(12);
 }
 
-// ============================================================================
 // Step — execute one instruction
-// ============================================================================
 
 uint32_t SnesCpu::Step() {
     instructionClocks_ = 0;
@@ -98,9 +90,7 @@ uint32_t SnesCpu::Step() {
     return instructionClocks_;
 }
 
-// ============================================================================
 // External interrupt requests
-// ============================================================================
 
 void SnesCpu::RequestNmi() {
     // NMI is edge-sensitive.  The IrqController already performs the
@@ -113,9 +103,7 @@ void SnesCpu::SetIrqLevel(bool active) {
     irqLine_ = active;
 }
 
-// ============================================================================
 // Bus interface overrides
-// ============================================================================
 
 void SnesCpu::idle() {
     addClocks(6);
@@ -149,9 +137,7 @@ bool SnesCpu::interruptPending() const {
     return nmiPending_ || (irqLine_ && !(regs().p & FlagI));
 }
 
-// ============================================================================
 // Internal helpers
-// ============================================================================
 
 void SnesCpu::addClocks(uint32_t clocks) {
     cycles_ += clocks;
@@ -170,7 +156,6 @@ void SnesCpu::pollInterrupts() {
     irqPending_ = irqLine_;
 }
 
-// ============================================================================
 // DRAM Refresh — 40-master-clock penalty per scanline
 //
 // bsnes performs 5 sub-steps of (6 halt + 2 interleave) = 40 total clocks.
@@ -180,7 +165,6 @@ void SnesCpu::pollInterrupts() {
 //   0 = not refreshing
 //   1 = bus halted (6 clocks)  — coprocessors see the bus as unavailable
 //   2 = interleave  (2 clocks) — brief gap between halt phases
-// ============================================================================
 
 void SnesCpu::ApplyDramRefreshPenalty() {
     for (int i = 0; i < 5; i++) {

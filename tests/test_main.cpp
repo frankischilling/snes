@@ -164,9 +164,7 @@ int main() {
         assert(!afterXce.e);
     }
 
-    // ================================================================
     // NEW: SnesCpu (Processor65816-based) tests
-    // ================================================================
     {
         RamBus bus;
 
@@ -317,9 +315,7 @@ int main() {
         std::printf("[SnesCpu] Branch/JSR/RTS test passed\n");
     }
 
-    // ================================================================
     // MemoryBus tests
-    // ================================================================
 
     // Test 1: Basic handler registration and read/write dispatch
     {
@@ -568,9 +564,7 @@ int main() {
         bus.Reset();
         bus.MapWram();
 
-        // ------------------------------------------------------------------
         // 7a: Normal reads update the global MDR
-        // ------------------------------------------------------------------
         bus.SetOpenBus(0x00);
         bus.WramData()[0x0000] = 0xAB;
         uint8_t v = bus.Read(0x000000);  // $00:0000 = WRAM mirror
@@ -582,10 +576,8 @@ int main() {
         assert(u == 0xAB);               // returns global MDR
         assert(bus.OpenBus() == 0xAB);   // still 0xAB (open-bus returns MDR, then sets MDR=MDR)
 
-        // ------------------------------------------------------------------
         // 7c: CPU I/O reads ($00-3F,$80-BF:$4000-$43FF) do NOT update
         //     the global MDR; they update cpuIoMdr_ instead.
-        // ------------------------------------------------------------------
         // Map a dummy CPU I/O handler at $00:4200-$421F that returns 0x77.
         bus.Map(0x00, 0x3F, 0x4200, 0x421F,
             [](uint32_t /*addr*/, uint8_t /*ob*/) -> uint8_t {
@@ -617,10 +609,8 @@ int main() {
         assert(bus.OpenBus() == 0x33);     // global MDR untouched
         assert(bus.CpuIoMdr() == 0x99);    // CPU I/O MDR updated
 
-        // ------------------------------------------------------------------
         // 7e: CPU I/O handler receives cpuIoMdr_ as its open-bus param,
         //     NOT the global MDR.
-        // ------------------------------------------------------------------
         // Handler that returns the open-bus value it receives.
         bus.Map(0x00, 0x3F, 0x4300, 0x437F,
             [](uint32_t /*addr*/, uint8_t ob) -> uint8_t {
@@ -637,10 +627,8 @@ int main() {
         assert(bus.OpenBus() == 0xAA);     // global MDR unchanged
         assert(bus.CpuIoMdr() == 0xBB);    // CPU I/O MDR still 0xBB
 
-        // ------------------------------------------------------------------
         // 7f: Addresses outside $4000-$43FF (e.g. $4400+) DO update
         //     the global MDR normally, even in the same bank.
-        // ------------------------------------------------------------------
         bus.Map(0x00, 0x3F, 0x4400, 0x44FF,
             [](uint32_t /*addr*/, uint8_t /*ob*/) -> uint8_t {
                 return 0xDD;
@@ -655,27 +643,21 @@ int main() {
         std::printf("[MemoryBus] Open bus behavior test passed\n");
     }
 
-    // ================================================================
     // CpuIoRegisters tests
-    // ================================================================
 
     // Test 8: CPU I/O — standalone register read/write
     {
         snes::core::CpuIoRegisters cpuIo;
         cpuIo.Reset();
 
-        // ------------------------------------------------------------------
         // 8a: $420D MEMSEL write → fastRom flag
-        // ------------------------------------------------------------------
         assert(cpuIo.fastRom() == false);
         cpuIo.Write(0x420D, 0x01);
         assert(cpuIo.fastRom() == true);
         cpuIo.Write(0x420D, 0x00);
         assert(cpuIo.fastRom() == false);
 
-        // ------------------------------------------------------------------
         // 8b: $4200 NMITIMEN write → flag decomposition
-        // ------------------------------------------------------------------
         cpuIo.Write(0x4200, 0xB1);  // bits: NMI=1, VIRQ=1, HIRQ=1, auto=1
         assert(cpuIo.nmiEnabled() == true);
         assert(cpuIo.vIrqEnabled() == true);
@@ -689,18 +671,14 @@ int main() {
         assert(cpuIo.hIrqEnabled() == false);
         assert(cpuIo.autoJoypadPoll() == false);
 
-        // ------------------------------------------------------------------
         // 8c: $4202-$4203 multiply (fast math)
-        // ------------------------------------------------------------------
         cpuIo.Write(0x4202, 12);    // WRMPYA = 12
         cpuIo.Write(0x4203, 13);    // WRMPYB = 13  → triggers multiply
         assert(cpuIo.rdmpy() == 156);  // 12 × 13 = 156
         // bsnes: rddiv = (wrmpyb << 8) | wrmpya after multiply trigger
         assert(cpuIo.rddiv() == ((13 << 8) | 12));
 
-        // ------------------------------------------------------------------
         // 8d: $4204-$4206 divide (fast math)
-        // ------------------------------------------------------------------
         cpuIo.Write(0x4204, 0x00);  // WRDIVL = 0 (1000 = 0x03E8)
         cpuIo.Write(0x4204, 0xE8);  // WRDIVL = 0xE8
         cpuIo.Write(0x4205, 0x03);  // WRDIVH = 0x03  → wrdiva = 0x03E8 = 1000
@@ -715,9 +693,7 @@ int main() {
         assert(cpuIo.rddiv() == 0xFFFF);  // div by zero → 0xFFFF
         assert(cpuIo.rdmpy() == 100);     // remainder = dividend
 
-        // ------------------------------------------------------------------
         // 8e: $4207-$420A H/V timer targets
-        // ------------------------------------------------------------------
         cpuIo.Write(0x4207, 0x80);  // HTIMEL = 0x80
         cpuIo.Write(0x4208, 0x01);  // HTIMEH bit 0 = 1  → htime = 0x180
         assert(cpuIo.htime() == 0x180);
@@ -726,9 +702,7 @@ int main() {
         cpuIo.Write(0x420A, 0x00);  // VTIMEH bit 0 = 0  → vtime = 0xC0
         assert(cpuIo.vtime() == 0xC0);
 
-        // ------------------------------------------------------------------
         // 8f: $4210 RDNMI — read-and-clear, open bus bits, CPU version
-        // ------------------------------------------------------------------
         cpuIo.setNmiFlag(true);
         uint8_t rdnmi = cpuIo.Read(0x4210, 0x70);  // open bus = 0x70
         assert((rdnmi & 0x80) == 0x80);  // NMI flag set
@@ -738,9 +712,7 @@ int main() {
         rdnmi = cpuIo.Read(0x4210, 0x70);
         assert((rdnmi & 0x80) == 0x00);  // NMI flag now clear
 
-        // ------------------------------------------------------------------
         // 8g: $4211 TIMEUP — read-and-clear IRQ flag
-        // ------------------------------------------------------------------
         cpuIo.setIrqFlag(true);
         uint8_t timeup = cpuIo.Read(0x4211, 0x3F);
         assert((timeup & 0x80) == 0x80);  // IRQ set
@@ -748,9 +720,7 @@ int main() {
         timeup = cpuIo.Read(0x4211, 0x00);
         assert((timeup & 0x80) == 0x00);  // IRQ cleared
 
-        // ------------------------------------------------------------------
         // 8h: $4212 HVBJOY — hblank/vblank/auto-joypad flags
-        // ------------------------------------------------------------------
         cpuIo.SetTimingQueryCallback([]() -> snes::core::TimingQuery {
             return {1100, 230, 225}; // H=1100 (in hblank), V=230 (in vblank)
         });
@@ -771,9 +741,7 @@ int main() {
         assert((hvbjoy & 0x40) == 0x00);
         assert((hvbjoy & 0x80) == 0x00);
 
-        // ------------------------------------------------------------------
         // 8i: $4218-$421F auto-joypad read results
-        // ------------------------------------------------------------------
         cpuIo.setJoy1(0x1234);
         cpuIo.setJoy2(0x5678);
         assert(cpuIo.Read(0x4218, 0) == 0x34);  // JOY1L
@@ -781,15 +749,11 @@ int main() {
         assert(cpuIo.Read(0x421A, 0) == 0x78);  // JOY2L
         assert(cpuIo.Read(0x421B, 0) == 0x56);  // JOY2H
 
-        // ------------------------------------------------------------------
         // 8j: $4201 WRIO + $4213 RDIO
-        // ------------------------------------------------------------------
         cpuIo.Write(0x4201, 0xA5);
         assert(cpuIo.Read(0x4213, 0) == 0xA5);  // RDIO returns last WRIO
 
-        // ------------------------------------------------------------------
         // 8k: $4016 joypad latch callback
-        // ------------------------------------------------------------------
         bool latchCalled = false;
         bool latchValue = false;
         cpuIo.SetJoypadLatchCallback([&](bool v) {
@@ -802,9 +766,7 @@ int main() {
         cpuIo.Write(0x4016, 0x00);
         assert(latchCalled && latchValue == false);
 
-        // ------------------------------------------------------------------
         // 8l: $4016-$4017 joypad read with data callback
-        // ------------------------------------------------------------------
         cpuIo.SetJoypadDataCallback([](int port) -> uint8_t {
             return port == 0 ? 0x01 : 0x02;
         });
@@ -816,14 +778,10 @@ int main() {
         assert((j1 & 0x03) == 0x02);  // port 1 data
         assert((j1 & 0x1C) == 0x1C);  // GND pins always set
 
-        // ------------------------------------------------------------------
         // 8m: Unrecognized registers return open bus
-        // ------------------------------------------------------------------
         assert(cpuIo.Read(0x4208, 0xAB) == 0xAB);  // write-only, returns ob
 
-        // ------------------------------------------------------------------
         // 8n: $420B/$420C DMA/HDMA callbacks
-        // ------------------------------------------------------------------
         uint8_t dmaChannels = 0, hdmaChannels = 0;
         cpuIo.SetDmaEnableCallback([&](uint8_t ch) { dmaChannels = ch; });
         cpuIo.SetHdmaEnableCallback([&](uint8_t ch) { hdmaChannels = ch; });
@@ -883,9 +841,7 @@ int main() {
         std::printf("[CpuIoRegisters] Bus-mapped register test passed\n");
     }
 
-    // ========================================================================
     // Test 10: DMA controller — standalone register read/write
-    // ========================================================================
     {
         snes::core::DmaController dma;
 
@@ -991,9 +947,7 @@ int main() {
         std::printf("[DmaController] Standalone register test passed\n");
     }
 
-    // ========================================================================
     // Test 11: DMA controller — mapped on MemoryBus
-    // ========================================================================
     {
         auto busPtr = std::make_unique<snes::core::MemoryBus>();
         auto& bus = *busPtr;
@@ -1044,9 +998,7 @@ int main() {
         std::printf("[DmaController] Bus-mapped register test passed\n");
     }
 
-    // ========================================================================
     // Test 12: GP-DMA transfer engine — modes 0-7, validation, cycle counts
-    // ========================================================================
     {
         using namespace snes::core;
 
@@ -1077,7 +1029,7 @@ int main() {
             {uint8_t(0x80), uint8_t(0xBF), uint16_t(0x2100), uint16_t(0x21FF)},
         }, ppuRegSlot);
 
-        // ----- Sub-test 12a: Mode 0 — 1 byte -> 1 register (A→B) -----
+        // Sub-test 12a: Mode 0 — 1 byte -> 1 register (A→B)
         {
             // Fill WRAM source: $7E:1000-$7E:1003 = {0xAA, 0xBB, 0xCC, 0xDD}
             bus.Write(0x7E1000, 0xAA);
@@ -1115,7 +1067,7 @@ int main() {
             std::printf("  [12a] Mode 0 A→B passed\n");
         }
 
-        // ----- Sub-test 12b: Mode 1 — 2 consecutive registers (A→B) -----
+        // Sub-test 12b: Mode 1 — 2 consecutive registers (A→B)
         {
             // Source: $7E:2000-$7E:2003 = {0x11, 0x22, 0x33, 0x44}
             bus.Write(0x7E2000, 0x11);
@@ -1146,7 +1098,7 @@ int main() {
             std::printf("  [12b] Mode 1 (2 consecutive) passed\n");
         }
 
-        // ----- Sub-test 12c: Mode 2 — same register twice -----
+        // Sub-test 12c: Mode 2 — same register twice
         {
             bus.Write(0x7E3000, 0xAA);
             bus.Write(0x7E3001, 0xBB);
@@ -1172,7 +1124,7 @@ int main() {
             std::printf("  [12c] Mode 2 (same register x2) passed\n");
         }
 
-        // ----- Sub-test 12d: Mode 3 — 2 regs, 2 each (p,p,p+1,p+1) -----
+        // Sub-test 12d: Mode 3 — 2 regs, 2 each (p,p,p+1,p+1)
         {
             bus.Write(0x7E4000, 0x10);
             bus.Write(0x7E4001, 0x20);
@@ -1200,7 +1152,7 @@ int main() {
             std::printf("  [12d] Mode 3 (2 regs x2 each) passed\n");
         }
 
-        // ----- Sub-test 12e: Mode 4 — 4 consecutive registers -----
+        // Sub-test 12e: Mode 4 — 4 consecutive registers
         {
             bus.Write(0x7E5000, 0xA1);
             bus.Write(0x7E5001, 0xB2);
@@ -1230,7 +1182,7 @@ int main() {
             std::printf("  [12e] Mode 4 (4 consecutive) passed\n");
         }
 
-        // ----- Sub-test 12f: Mode 5 — same as mode 1 -----
+        // Sub-test 12f: Mode 5 — same as mode 1
         {
             bus.Write(0x7E6000, 0x55);
             bus.Write(0x7E6001, 0x66);
@@ -1253,7 +1205,7 @@ int main() {
             std::printf("  [12f] Mode 5 (=mode 1) passed\n");
         }
 
-        // ----- Sub-test 12g: Direction 1 — B→A (PPU→CPU) -----
+        // Sub-test 12g: Direction 1 — B→A (PPU→CPU)
         {
             // Set up fake PPU reg $2139 to return a known value
             ppuRegs[0x39] = 0xEE;
@@ -1277,7 +1229,7 @@ int main() {
             std::printf("  [12g] Direction B→A passed\n");
         }
 
-        // ----- Sub-test 12h: Fixed transfer (address doesn't change) -----
+        // Sub-test 12h: Fixed transfer (address doesn't change)
         {
             bus.Write(0x7E8000, 0x42);
 
@@ -1300,7 +1252,7 @@ int main() {
             std::printf("  [12h] Fixed transfer passed\n");
         }
 
-        // ----- Sub-test 12i: Reverse transfer (decrement) -----
+        // Sub-test 12i: Reverse transfer (decrement)
         {
             bus.Write(0x7E9003, 0xA0);
             bus.Write(0x7E9002, 0xB0);
@@ -1325,7 +1277,7 @@ int main() {
             std::printf("  [12i] Reverse (decrement) transfer passed\n");
         }
 
-        // ----- Sub-test 12j: Transfer size 0 = 65536 bytes -----
+        // Sub-test 12j: Transfer size 0 = 65536 bytes
         {
             auto& ch = dma.Channel(0);
             ch.Reset();
@@ -1348,7 +1300,7 @@ int main() {
             std::printf("  [12j] Transfer size 0 = 65536 passed\n");
         }
 
-        // ----- Sub-test 12k: A-bus validation (invalid addresses) -----
+        // Sub-test 12k: A-bus validation (invalid addresses)
         {
             // ValidA should reject B-bus and CPU I/O ranges
             assert(DmaController::ValidA(0x002100) == false);  // B-bus
@@ -1371,7 +1323,7 @@ int main() {
             std::printf("  [12k] A-bus validation passed\n");
         }
 
-        // ----- Sub-test 12l: WRAM-to-WRAM invalid check -----
+        // Sub-test 12l: WRAM-to-WRAM invalid check
         {
             // B-bus $80 → $2180 (WMDATA). If A-bus is also WRAM, invalid.
             assert(DmaController::ValidWramTransfer(0x80, 0x7E0000) == false);  // full WRAM
@@ -1390,7 +1342,7 @@ int main() {
             std::printf("  [12l] WRAM-to-WRAM validation passed\n");
         }
 
-        // ----- Sub-test 12m: Multiple channels in priority order -----
+        // Sub-test 12m: Multiple channels in priority order
         {
             // Channel 0 writes to ppuReg $18, channel 2 writes to ppuReg $19
             // Channel 0 runs first (lower = higher priority)
@@ -1429,7 +1381,7 @@ int main() {
             std::printf("  [12m] Multi-channel priority order passed\n");
         }
 
-        // ----- Sub-test 12n: DMA with no bus returns 0 cycles -----
+        // Sub-test 12n: DMA with no bus returns 0 cycles
         {
             DmaController dma2;
             // No bus set
@@ -1443,9 +1395,7 @@ int main() {
         std::printf("[DmaController] GP-DMA transfer engine tests passed\n");
     }
 
-    // ========================================================================
     // Test 13: HDMA — direct mode, indirect mode, multi-scanline lifecycle
-    // ========================================================================
     {
         using namespace snes::core;
 
@@ -1473,7 +1423,7 @@ int main() {
             {uint8_t(0x80), uint8_t(0xBF), uint16_t(0x2100), uint16_t(0x21FF)},
         }, ppuSlot);
 
-        // ----- Sub-test 13a: Direct mode, mode 0, single entry -----
+        // Sub-test 13a: Direct mode, mode 0, single entry
         //
         // HDMA table at $7E:C000:
         //   [count=3] [data]      — 3 scanlines, transfer on first only (no repeat)
@@ -1546,7 +1496,7 @@ int main() {
             std::printf("  [13a] Direct mode 0 single entry passed\n");
         }
 
-        // ----- Sub-test 13b: Direct mode with repeat flag -----
+        // Sub-test 13b: Direct mode with repeat flag
         //
         // HDMA table at $7E:D000:
         //   [0x83] [data0] [data1] [data2]  — repeat=1, count=3
@@ -1608,7 +1558,7 @@ int main() {
             std::printf("  [13b] Direct mode with repeat flag passed\n");
         }
 
-        // ----- Sub-test 13c: Direct mode, mode 1 (2 consecutive regs) -----
+        // Sub-test 13c: Direct mode, mode 1 (2 consecutive regs)
         //
         // Table at $7E:E000:
         //   [0x01] [lo] [hi]  — 1 scanline, mode 1 = 2 bytes per entry
@@ -1643,7 +1593,7 @@ int main() {
             std::printf("  [13c] Direct mode 1 (2 regs) passed\n");
         }
 
-        // ----- Sub-test 13d: Indirect mode -----
+        // Sub-test 13d: Indirect mode
         //
         // HDMA table at $7E:F000 (in sourceBank):
         //   [0x02] [indLo] [indHi]   — count=2, indirect addr
@@ -1698,7 +1648,7 @@ int main() {
             std::printf("  [13d] Indirect mode passed\n");
         }
 
-        // ----- Sub-test 13e: Multiple HDMA entries (sequential) -----
+        // Sub-test 13e: Multiple HDMA entries (sequential)
         //
         // Table at $7E:B000:
         //   [0x01] [0xAA]     — 1 scanline, data 0xAA
@@ -1745,7 +1695,7 @@ int main() {
             std::printf("  [13e] Multiple sequential entries passed\n");
         }
 
-        // ----- Sub-test 13f: HDMA cancels active GP-DMA -----
+        // Sub-test 13f: HDMA cancels active GP-DMA
         {
             bus.Write(0x7E8800, 0x01);  // HDMA table: count=1
             bus.Write(0x7E8801, 0xFF);  // data
@@ -1769,7 +1719,7 @@ int main() {
             std::printf("  [13f] HDMA cancels GP-DMA passed\n");
         }
 
-        // ----- Sub-test 13g: Multi-channel HDMA priority -----
+        // Sub-test 13g: Multi-channel HDMA priority
         {
             // Channel 0: table at $7E:8A00
             bus.Write(0x7E8A00, 0x01);  // count=1
@@ -1811,7 +1761,7 @@ int main() {
             std::printf("  [13g] Multi-channel HDMA priority passed\n");
         }
 
-        // ----- Sub-test 13h: Cycle counting -----
+        // Sub-test 13h: Cycle counting
         {
             // Direct mode, mode 0 (1 byte), count=1
             bus.Write(0x7E8C00, 0x01);  // count=1
@@ -1843,7 +1793,7 @@ int main() {
             std::printf("  [13h] Cycle counting passed\n");
         }
 
-        // ----- Sub-test 13i: No bus → 0 cycles -----
+        // Sub-test 13i: No bus → 0 cycles
         {
             DmaController dma2;
             // No bus
@@ -1856,13 +1806,11 @@ int main() {
         std::printf("[DmaController] HDMA tests passed\n");
     }
 
-    // ====================================================================
     // Test 14: PPU registers
-    // ====================================================================
     {
         using namespace snes::core;
 
-        // ----- Sub-test 14a: Standalone register read/write -----
+        // Sub-test 14a: Standalone register read/write
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -1944,7 +1892,7 @@ int main() {
             std::printf("  [14a] Standalone register write test passed\n");
         }
 
-        // ----- Sub-test 14b: VRAM read/write -----
+        // Sub-test 14b: VRAM read/write
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -1986,7 +1934,7 @@ int main() {
             std::printf("  [14b] VRAM read/write passed\n");
         }
 
-        // ----- Sub-test 14c: VRAM address translation modes -----
+        // Sub-test 14c: VRAM address translation modes
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x80);  // forced blank
@@ -2015,7 +1963,7 @@ int main() {
             std::printf("  [14c] VRAM address translation passed\n");
         }
 
-        // ----- Sub-test 14d: OAM write/read via $2104/$2138 -----
+        // Sub-test 14d: OAM write/read via $2104/$2138
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x80);  // forced blank
@@ -2047,7 +1995,7 @@ int main() {
             std::printf("  [14d] OAM write/read passed\n");
         }
 
-        // ----- Sub-test 14e: CGRAM write/read via $2121/$2122/$213B -----
+        // Sub-test 14e: CGRAM write/read via $2121/$2122/$213B
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x80);  // forced blank
@@ -2075,7 +2023,7 @@ int main() {
             std::printf("  [14e] CGRAM write/read passed\n");
         }
 
-        // ----- Sub-test 14f: Mode 7 multiply readback ($2134-$2136) -----
+        // Sub-test 14f: Mode 7 multiply readback ($2134-$2136)
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2098,7 +2046,7 @@ int main() {
             std::printf("  [14f] Mode 7 multiply readback passed\n");
         }
 
-        // ----- Sub-test 14g: Scroll register write-twice latch -----
+        // Sub-test 14g: Scroll register write-twice latch
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2120,7 +2068,7 @@ int main() {
             std::printf("  [14g] Scroll write-twice latch passed\n");
         }
 
-        // ----- Sub-test 14h: Window registers -----
+        // Sub-test 14h: Window registers
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2155,7 +2103,7 @@ int main() {
             std::printf("  [14h] Window registers passed\n");
         }
 
-        // ----- Sub-test 14i: Color math registers -----
+        // Sub-test 14i: Color math registers
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2189,7 +2137,7 @@ int main() {
             std::printf("  [14i] Color math registers passed\n");
         }
 
-        // ----- Sub-test 14j: SETINI ($2133) -----
+        // Sub-test 14j: SETINI ($2133)
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2208,7 +2156,7 @@ int main() {
             std::printf("  [14j] SETINI register passed\n");
         }
 
-        // ----- Sub-test 14k: STAT77/STAT78 readback ($213E/$213F) -----
+        // Sub-test 14k: STAT77/STAT78 readback ($213E/$213F)
         {
             Ppu ppu;
 
@@ -2226,7 +2174,7 @@ int main() {
             std::printf("  [14k] STAT77/STAT78 readback passed\n");
         }
 
-        // ----- Sub-test 14l: H/V counter latch + readback -----
+        // Sub-test 14l: H/V counter latch + readback
         {
             Ppu ppu;
 
@@ -2253,7 +2201,7 @@ int main() {
             std::printf("  [14l] H/V counter latch + readback passed\n");
         }
 
-        // ----- Sub-test 14m: Bus-mapped PPU registers -----
+        // Sub-test 14m: Bus-mapped PPU registers
         {
             auto busPtr = std::make_unique<MemoryBus>();
             auto& bus = *busPtr;
@@ -2301,7 +2249,7 @@ int main() {
             std::printf("  [14m] Bus-mapped PPU registers passed\n");
         }
 
-        // ----- Sub-test 14n: VRAM blocked during active display -----
+        // Sub-test 14n: VRAM blocked during active display
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x00);  // display enabled (not forced blank)
@@ -2327,7 +2275,7 @@ int main() {
             std::printf("  [14n] VRAM blocked during active display passed\n");
         }
 
-        // ----- Sub-test 14o: BG tiledata address 0x7000 mask -----
+        // Sub-test 14o: BG tiledata address 0x7000 mask
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2352,7 +2300,7 @@ int main() {
             std::printf("  [14o] BG tiledata address mask passed\n");
         }
 
-        // ----- Sub-test 14p: OAM out-of-range addresses are no-ops -----
+        // Sub-test 14p: OAM out-of-range addresses are no-ops
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x80);  // forced blank
@@ -2380,7 +2328,7 @@ int main() {
             std::printf("  [14p] OAM bounds check passed\n");
         }
 
-        // ----- Sub-test 14q: CGRAM H-counter gating -----
+        // Sub-test 14q: CGRAM H-counter gating
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x00);  // display enabled
@@ -2422,7 +2370,7 @@ int main() {
             std::printf("  [14q] CGRAM H-counter gating passed\n");
         }
 
-        // ----- Sub-test 14r: STAT78 PIO bit 7 behavior -----
+        // Sub-test 14r: STAT78 PIO bit 7 behavior
         {
             Ppu ppu;
 
@@ -2450,7 +2398,7 @@ int main() {
             std::printf("  [14r] STAT78 PIO behavior passed\n");
         }
 
-        // ----- Sub-test 14s: VRAM visible-line gating matches bsnes -----
+        // Sub-test 14s: VRAM visible-line gating matches bsnes
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x00);  // display enabled
@@ -2482,7 +2430,7 @@ int main() {
             std::printf("  [14s] VRAM visible-line gating passed\n");
         }
 
-        // ----- Sub-test 14t: BG scroll registers are 10-bit -----
+        // Sub-test 14t: BG scroll registers are 10-bit
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2500,7 +2448,7 @@ int main() {
             std::printf("  [14t] BG scroll 10-bit mask passed\n");
         }
 
-        // ----- Sub-test 14u: Mosaic counter advances per visible scanline -----
+        // Sub-test 14u: Mosaic counter advances per visible scanline
         {
             Ppu ppu;
             auto& io = ppu.GetIO();
@@ -2530,9 +2478,7 @@ int main() {
         std::printf("[PPU] Register model tests passed\n");
     }
 
-    // ====================================================================
     // Test 15: PPU Scanline Rendering Pipeline (Step 18)
-    // ====================================================================
     {
         using namespace snes::core;
 
@@ -2597,7 +2543,7 @@ int main() {
                                  | (static_cast<uint16_t>(plane1) << 8);
         };
 
-        // ----- Sub-test 15a: OAM Parse -----
+        // Sub-test 15a: OAM Parse
         {
             Ppu ppu;
 
@@ -2641,7 +2587,7 @@ int main() {
             std::printf("  [15a] OAM parse test passed\n");
         }
 
-        // ----- Sub-test 15a2: OBJ first visible output row -----
+        // Sub-test 15a2: OBJ first visible output row
         {
             Ppu ppu;
             setupObjFixture(ppu, 0x10, false);  // 8x8 sprite
@@ -2656,7 +2602,7 @@ int main() {
             std::printf("  [15a2] OBJ first-active line alignment passed\n");
         }
 
-        // ----- Sub-test 15a3: OBJ Y wraparound near 0xFF -> 0x00 -----
+        // Sub-test 15a3: OBJ Y wraparound near 0xFF -> 0x00
         {
             Ppu ppu;
             setupObjFixture(ppu, 0xFC, true);  // 16x16 sprite wraps into low lines
@@ -2671,7 +2617,7 @@ int main() {
             std::printf("  [15a3] OBJ wraparound line selection passed\n");
         }
 
-        // ----- Sub-test 15a4: BG output row 0 maps to hardware scanline 1 -----
+        // Sub-test 15a4: BG output row 0 maps to hardware scanline 1
         {
             Ppu ppu;
 
@@ -2697,7 +2643,7 @@ int main() {
             std::printf("  [15a4] BG visible-line mapping passed\n");
         }
 
-        // ----- Sub-test 15b: Light table -----
+        // Sub-test 15b: Light table
         {
             Ppu ppu;
 
@@ -2716,7 +2662,7 @@ int main() {
             std::printf("  [15b] Brightness 0 → all black test passed\n");
         }
 
-        // ----- Sub-test 15c: Display disabled → black row -----
+        // Sub-test 15c: Display disabled → black row
         {
             Ppu ppu;
 
@@ -2736,7 +2682,7 @@ int main() {
             std::printf("  [15c] Display disabled → black row test passed\n");
         }
 
-        // ----- Sub-test 15d: Backdrop color at full brightness -----
+        // Sub-test 15d: Backdrop color at full brightness
         {
             Ppu ppu;
 
@@ -2757,7 +2703,7 @@ int main() {
             std::printf("  [15d] Backdrop color at full brightness test passed\n");
         }
 
-        // ----- Sub-test 15e: Backdrop color at half brightness -----
+        // Sub-test 15e: Backdrop color at half brightness
         {
             Ppu ppu;
 
@@ -2784,7 +2730,7 @@ int main() {
             std::printf("  [15e] Backdrop color at half brightness test passed\n");
         }
 
-        // ----- Sub-test 15f: BG1 2bpp tile rendering (Mode 0) -----
+        // Sub-test 15f: BG1 2bpp tile rendering (Mode 0)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);  // display on, brightness 15
@@ -2840,7 +2786,7 @@ int main() {
             std::printf("  [15f] BG1 2bpp tile rendering test passed\n");
         }
 
-        // ----- Sub-test 15f2: BG fetch uses hardware scanline coordinates -----
+        // Sub-test 15f2: BG fetch uses hardware scanline coordinates
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);  // display on, brightness 15
@@ -2870,7 +2816,7 @@ int main() {
             std::printf("  [15f2] BG cached-line vertical fetch alignment passed\n");
         }
 
-        // ----- Sub-test 15g: BG1 priority ordering -----
+        // Sub-test 15g: BG1 priority ordering
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // display on, brightness 15
@@ -2931,7 +2877,7 @@ int main() {
             std::printf("  [15g] BG priority ordering test passed\n");
         }
 
-        // ----- Sub-test 15h: Window masking -----
+        // Sub-test 15h: Window masking
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // display on, max brightness
@@ -2985,7 +2931,7 @@ int main() {
             std::printf("  [15h] Window masking test passed\n");
         }
 
-        // ----- Sub-test 15i: Color math — add fixed color -----
+        // Sub-test 15i: Color math — add fixed color
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // display on, max brightness
@@ -3027,7 +2973,7 @@ int main() {
             std::printf("  [15i] Color math add fixed color test passed\n");
         }
 
-        // ----- Sub-test 15j: Blend saturating add -----
+        // Sub-test 15j: Blend saturating add
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // display on, max brightness
@@ -3055,7 +3001,7 @@ int main() {
             std::printf("  [15j] Blend saturating add test passed\n");
         }
 
-        // ----- Sub-test 15k: Blend subtract with saturation to 0 -----
+        // Sub-test 15k: Blend subtract with saturation to 0
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3082,7 +3028,7 @@ int main() {
             std::printf("  [15k] Blend subtract saturation test passed\n");
         }
 
-        // ----- Sub-test 15l: CachedLineCount -----
+        // Sub-test 15l: CachedLineCount
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3101,7 +3047,7 @@ int main() {
             std::printf("  [15l] CachedLineCount test passed\n");
         }
 
-        // ----- Sub-test 15m: OutputData non-null and correct size region -----
+        // Sub-test 15m: OutputData non-null and correct size region
         {
             Ppu ppu;
             assert(ppu.OutputData() != nullptr);
@@ -3111,7 +3057,7 @@ int main() {
             std::printf("  [15m] OutputData allocation test passed\n");
         }
 
-        // ----- Sub-test 15n: DirectColor conversion -----
+        // Sub-test 15n: DirectColor conversion
         {
             // DirectColor converts palette index + color to BGR555
             // Formula: R = ((color<<2) & 0x1C) | ((index<<1) & 0x02)
@@ -3191,9 +3137,7 @@ int main() {
         std::printf("[PPU] Scanline rendering pipeline tests passed\n");
     }
 
-    // ====================================================================
     // Test 16: BG Modes 0-3 — Tile fetching for 2bpp/4bpp/8bpp (Step 19)
-    // ====================================================================
     {
         using namespace snes::core;
 
@@ -3238,7 +3182,7 @@ int main() {
             ppu.VramData()[addr + 8] = static_cast<uint16_t>(plane2) | (static_cast<uint16_t>(plane3) << 8);
         };
 
-        // ----- 16a: Mode 0 — all 4 BGs visible with correct palette bases -----
+        // 16a: Mode 0 — all 4 BGs visible with correct palette bases
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // display on, brightness 15
@@ -3313,7 +3257,7 @@ int main() {
             std::printf("  [16a] Mode 0: 4 BGs with palette bases test passed\n");
         }
 
-        // ----- 16b: Mode 1 — BG1 4bpp, BG2 4bpp, BG3 2bpp -----
+        // 16b: Mode 1 — BG1 4bpp, BG2 4bpp, BG3 2bpp
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3355,7 +3299,7 @@ int main() {
             std::printf("  [16b] Mode 1: 4bpp BG1 tile rendering test passed\n");
         }
 
-        // ----- 16c: Mode 3 — BG1 8bpp -----
+        // 16c: Mode 3 — BG1 8bpp
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3395,7 +3339,7 @@ int main() {
             std::printf("  [16c] Mode 3: 8bpp BG1 tile rendering test passed\n");
         }
 
-        // ----- 16d: Horizontal scrolling -----
+        // 16d: Horizontal scrolling
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3436,7 +3380,7 @@ int main() {
             std::printf("  [16d] Horizontal scrolling test passed\n");
         }
 
-        // ----- 16e: Vertical scrolling -----
+        // 16e: Vertical scrolling
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3476,7 +3420,7 @@ int main() {
             std::printf("  [16e] Vertical scrolling test passed\n");
         }
 
-        // ----- 16f: Tile horizontal flip -----
+        // 16f: Tile horizontal flip
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3512,7 +3456,7 @@ int main() {
             std::printf("  [16f] Tile horizontal flip test passed\n");
         }
 
-        // ----- 16g: Tile vertical flip -----
+        // 16g: Tile vertical flip
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3549,7 +3493,7 @@ int main() {
             std::printf("  [16g] Tile vertical flip test passed\n");
         }
 
-        // ----- 16h: 16×16 tile size -----
+        // 16h: 16×16 tile size
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3606,7 +3550,7 @@ int main() {
             std::printf("  [16h] 16x16 tile size test passed\n");
         }
 
-        // ----- 16i: Tilemap priority bit -----
+        // 16i: Tilemap priority bit
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3649,7 +3593,7 @@ int main() {
             std::printf("  [16i] Tilemap priority bit test passed\n");
         }
 
-        // ----- 16j: Tilemap palette selection (2bpp, 4 palettes per BG) -----
+        // 16j: Tilemap palette selection (2bpp, 4 palettes per BG)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3683,7 +3627,7 @@ int main() {
             std::printf("  [16j] Tilemap palette selection test passed\n");
         }
 
-        // ----- 16k: Color 0 transparency (only backdrop shows through) -----
+        // 16k: Color 0 transparency (only backdrop shows through)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3715,7 +3659,7 @@ int main() {
             std::printf("  [16k] Color 0 transparency test passed\n");
         }
 
-        // ----- 16l: Multiple tile columns (scrolling across tile boundaries) -----
+        // 16l: Multiple tile columns (scrolling across tile boundaries)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3754,7 +3698,7 @@ int main() {
             std::printf("  [16l] Multiple tile columns test passed\n");
         }
 
-        // ----- 16m: 16×16 tile number wrapping (regression for bug fix) -----
+        // 16m: 16×16 tile number wrapping (regression for bug fix)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -3806,9 +3750,7 @@ int main() {
         std::printf("[PPU] BG modes 0-3 tests passed\n");
     }
 
-    // ====================================================================
     // Test 17: Sprite rendering (Step 20)
-    // ====================================================================
     {
         using namespace snes::core;
 
@@ -3877,7 +3819,7 @@ int main() {
             SetBackgroundOrigin(ppu);
         };
 
-        // ----- 17a: Basic 8×8 sprite rendering -----
+        // 17a: Basic 8×8 sprite rendering
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -3907,7 +3849,7 @@ int main() {
             std::printf("  [17a] Basic 8x8 sprite rendering test passed\n");
         }
 
-        // ----- 17b: Sprite palette selection -----
+        // 17b: Sprite palette selection
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -3933,7 +3875,7 @@ int main() {
             std::printf("  [17b] Sprite palette selection test passed\n");
         }
 
-        // ----- 17c: Sprite priority over BG -----
+        // 17c: Sprite priority over BG
         {
             Ppu ppu;
             // Move all sprites off-screen
@@ -3979,7 +3921,7 @@ int main() {
             std::printf("  [17c] Sprite priority over BG test passed\n");
         }
 
-        // ----- 17d: Sprite horizontal flip -----
+        // 17d: Sprite horizontal flip
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4004,7 +3946,7 @@ int main() {
             std::printf("  [17d] Sprite horizontal flip test passed\n");
         }
 
-        // ----- 17e: Sprite vertical flip (square 8×8) -----
+        // 17e: Sprite vertical flip (square 8×8)
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4034,7 +3976,7 @@ int main() {
             std::printf("  [17e] Sprite vflip (square 8x8) test passed\n");
         }
 
-        // ----- 17f: Sprite vertical flip (non-square 16×32) -----
+        // 17f: Sprite vertical flip (non-square 16×32)
         {
             Ppu ppu;
             // Move all sprites off-screen
@@ -4107,7 +4049,7 @@ int main() {
             std::printf("  [17f] Sprite vflip (non-square 16x32) test passed\n");
         }
 
-        // ----- 17g: 16×16 sprite -----
+        // 17g: 16×16 sprite
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4144,7 +4086,7 @@ int main() {
             std::printf("  [17g] 16x16 sprite test passed\n");
         }
 
-        // ----- 17h: Sprite Y uses top-left origin (no implicit bias) -----
+        // 17h: Sprite Y uses top-left origin (no implicit bias)
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4178,7 +4120,7 @@ int main() {
             std::printf("  [17h] Sprite Y top-left origin test passed\n");
         }
 
-        // ----- 17i: Sprite color 0 transparency -----
+        // 17i: Sprite color 0 transparency
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4199,7 +4141,7 @@ int main() {
             std::printf("  [17i] Sprite color 0 transparency test passed\n");
         }
 
-        // ----- 17j: OBJ1/OBJ2 source distinction -----
+        // 17j: OBJ1/OBJ2 source distinction
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4224,7 +4166,7 @@ int main() {
             std::printf("  [17j] OBJ1/OBJ2 source distinction test passed\n");
         }
 
-        // ----- 17k: 32-sprite limit + rangeOver flag -----
+        // 17k: 32-sprite limit + rangeOver flag
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4255,7 +4197,7 @@ int main() {
             std::printf("  [17k] 32-sprite limit + rangeOver flag test passed\n");
         }
 
-        // ----- 17l: Sprite X wrapping (x >= 256) -----
+        // 17l: Sprite X wrapping (x >= 256)
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4294,7 +4236,7 @@ int main() {
             std::printf("  [17l] Sprite X wrapping test passed\n");
         }
 
-        // ----- 17m: Multiple sprites with OAM priority -----
+        // 17m: Multiple sprites with OAM priority
         {
             Ppu ppu;
             spriteSetup(ppu);
@@ -4319,7 +4261,7 @@ int main() {
             std::printf("  [17m] Multiple sprites OAM priority test passed\n");
         }
 
-        // ----- 17n: Nameselect + second character page -----
+        // 17n: Nameselect + second character page
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4353,9 +4295,7 @@ int main() {
         std::printf("[PPU] Sprite rendering tests passed\n");
     }
 
-    // ====================================================================
     // Test 18: Color math (Step 21)
-    // ====================================================================
     {
         using namespace snes::core;
 
@@ -4409,7 +4349,7 @@ int main() {
             }
         };
 
-        // ----- 18a: Add blending — BG1 + fixed color -----
+        // 18a: Add blending — BG1 + fixed color
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // display on, brightness 15
@@ -4449,7 +4389,7 @@ int main() {
             std::printf("  [18a] Add blending (BG1 + fixed color) test passed\n");
         }
 
-        // ----- 18b: Add with saturation -----
+        // 18b: Add with saturation
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4481,7 +4421,7 @@ int main() {
             std::printf("  [18b] Add with saturation test passed\n");
         }
 
-        // ----- 18c: Subtract blending -----
+        // 18c: Subtract blending
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4516,7 +4456,7 @@ int main() {
             std::printf("  [18c] Subtract blending test passed\n");
         }
 
-        // ----- 18d: Subtract with clamping to 0 -----
+        // 18d: Subtract with clamping to 0
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4550,7 +4490,7 @@ int main() {
             std::printf("  [18d] Subtract clamping to 0 test passed\n");
         }
 
-        // ----- 18e: Half-add blending -----
+        // 18e: Half-add blending
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4582,7 +4522,7 @@ int main() {
             std::printf("  [18e] Half-add blending test passed\n");
         }
 
-        // ----- 18f: Half-subtract blending -----
+        // 18f: Half-subtract blending
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4614,7 +4554,7 @@ int main() {
             std::printf("  [18f] Half-subtract blending test passed\n");
         }
 
-        // ----- 18g: Color math disabled for layer → no blending -----
+        // 18g: Color math disabled for layer → no blending
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4646,7 +4586,7 @@ int main() {
             std::printf("  [18g] Color math disabled for layer test passed\n");
         }
 
-        // ----- 18h: Sub-screen blending (blendMode=1) -----
+        // 18h: Sub-screen blending (blendMode=1)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4690,7 +4630,7 @@ int main() {
             std::printf("  [18h] Sub-screen blending (blendMode=1) test passed\n");
         }
 
-        // ----- 18i: Clip-to-black (windowAbove prevents display) -----
+        // 18i: Clip-to-black (windowAbove prevents display)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4736,7 +4676,7 @@ int main() {
             std::printf("  [18i] Clip-to-black (windowAbove) test passed\n");
         }
 
-        // ----- 18j: Prevent-math (windowBelow blocks color math) -----
+        // 18j: Prevent-math (windowBelow blocks color math)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4778,7 +4718,7 @@ int main() {
             std::printf("  [18j] Prevent-math (windowBelow) test passed\n");
         }
 
-        // ----- 18k: Color math on backdrop (COL source) -----
+        // 18k: Color math on backdrop (COL source)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4806,7 +4746,7 @@ int main() {
             std::printf("  [18k] Color math on backdrop test passed\n");
         }
 
-        // ----- 18l: Halve guard — sub screen is backdrop (COL) → no halve -----
+        // 18l: Halve guard — sub screen is backdrop (COL) → no halve
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4839,7 +4779,7 @@ int main() {
             std::printf("  [18l] Halve guard (sub=COL → no halve) test passed\n");
         }
 
-        // ----- 18m: Multi-channel fixed color -----
+        // 18m: Multi-channel fixed color
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4881,7 +4821,7 @@ int main() {
             std::printf("  [18m] Multi-channel fixed color test passed\n");
         }
 
-        // ----- 18n: aboveMask=3 (never clip) + belowMask=3 (never allow math) -----
+        // 18n: aboveMask=3 (never clip) + belowMask=3 (never allow math)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -4915,9 +4855,7 @@ int main() {
         std::printf("[PPU] Color math tests passed\n");
     }
 
-    // ====================================================================
     // Test 19: Brightness + output (Step 22)
-    // ====================================================================
     {
         using namespace snes::core;
 
@@ -4950,7 +4888,7 @@ int main() {
             ppu.VramData()[addr] = static_cast<uint16_t>(p0) | (static_cast<uint16_t>(p1) << 8);
         };
 
-        // ----- 19a: Brightness 0 → all black -----
+        // 19a: Brightness 0 → all black
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x00); // brightness=0, display on
@@ -4970,7 +4908,7 @@ int main() {
             std::printf("  [19a] Brightness 0 → all black test passed\n");
         }
 
-        // ----- 19b: Brightness 15 → full passthrough -----
+        // 19b: Brightness 15 → full passthrough
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F); // brightness=15
@@ -4991,7 +4929,7 @@ int main() {
             std::printf("  [19b] Brightness 15 → full passthrough test passed\n");
         }
 
-        // ----- 19c: Brightness 15 with specific color -----
+        // 19c: Brightness 15 with specific color
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -5025,7 +4963,7 @@ int main() {
             std::printf("  [19c] Brightness 15 specific color test passed\n");
         }
 
-        // ----- 19d: Brightness 8 (approximately half) -----
+        // 19d: Brightness 8 (approximately half)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x08); // brightness=8
@@ -5047,7 +4985,7 @@ int main() {
             std::printf("  [19d] Brightness 8 (half) test passed\n");
         }
 
-        // ----- 19e: Brightness 1 (minimum visible) -----
+        // 19e: Brightness 1 (minimum visible)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x01); // brightness=1
@@ -5069,7 +5007,7 @@ int main() {
             std::printf("  [19e] Brightness 1 (minimum visible) test passed\n");
         }
 
-        // ----- 19f: Display disabled → all black (regardless of brightness) -----
+        // 19f: Display disabled → all black (regardless of brightness)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x8F); // display disabled (bit 7) + brightness=15
@@ -5087,7 +5025,7 @@ int main() {
             std::printf("  [19f] Display disabled → black test passed\n");
         }
 
-        // ----- 19g: RGBA8888 output format verification -----
+        // 19g: RGBA8888 output format verification
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -5124,7 +5062,7 @@ int main() {
             std::printf("  [19g] RGBA8888 output format verification test passed\n");
         }
 
-        // ----- 19h: 5→8 bit expansion uses (c<<3)|(c>>2) -----
+        // 19h: 5→8 bit expansion uses (c<<3)|(c>>2)
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -5155,7 +5093,7 @@ int main() {
             std::printf("  [19h] 5→8 bit expansion (c<<3|c>>2) test passed\n");
         }
 
-        // ----- 19i: Light table exhaustive spot checks -----
+        // 19i: Light table exhaustive spot checks
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x0F);
@@ -5178,7 +5116,7 @@ int main() {
             std::printf("  [19i] Light table spot checks (all 16 levels) test passed\n");
         }
 
-        // ----- 19j: Brightness applies AFTER color math -----
+        // 19j: Brightness applies AFTER color math
         {
             Ppu ppu;
             ppu.WriteIO(0x2100, 0x08); // brightness=8
@@ -5212,7 +5150,7 @@ int main() {
             std::printf("  [19j] Brightness applies after color math test passed\n");
         }
 
-        // ----- 19k: Alpha is always 0xFF (except display disabled) -----
+        // 19k: Alpha is always 0xFF (except display disabled)
         {
             Ppu ppu;
             ppu.WriteIO(0x2105, 0x00);
@@ -5237,9 +5175,7 @@ int main() {
         std::printf("[PPU] Brightness + output tests passed\n");
     }
 
-    // ========================================================================
     // Test 20: SPC700 CPU core (Step 23)
-    // ========================================================================
     {
         std::printf("[SPC700] Running SPC700 CPU core tests...\n");
 
@@ -5270,7 +5206,7 @@ int main() {
             }
         };
 
-        // ----- 20a: PSW Pack/Unpack round-trip -----
+        // 20a: PSW Pack/Unpack round-trip
         {
             Spc700::Flags f;
             f.Unpack(0xFF);
@@ -5294,7 +5230,7 @@ int main() {
             std::printf("  [20a] PSW Pack/Unpack round-trip passed\n");
         }
 
-        // ----- 20b: YA accessor -----
+        // 20b: YA accessor
         {
             Spc700::Registers reg;
             reg.a = 0x34;
@@ -5307,7 +5243,7 @@ int main() {
             std::printf("  [20b] YA 16-bit accessor passed\n");
         }
 
-        // ----- 20c: Power-on state -----
+        // 20c: Power-on state
         {
             TestSpc700 spc;
             // Power should be called by constructor
@@ -5322,7 +5258,7 @@ int main() {
             std::printf("  [20c] Power-on state passed\n");
         }
 
-        // ----- 20d: ALU — ADC (basic + flags) -----
+        // 20d: ALU — ADC (basic + flags)
         {
             TestSpc700 spc;
             spc.reset();
@@ -5348,7 +5284,7 @@ int main() {
             std::printf("  [20d] ALU ADC passed\n");
         }
 
-        // ----- 20e: ALU — SBC -----
+        // 20e: ALU — SBC
         {
             TestSpc700 spc;
             spc.reset();
@@ -5367,7 +5303,7 @@ int main() {
             std::printf("  [20e] ALU SBC passed\n");
         }
 
-        // ----- 20f: ALU — AND, OR, EOR -----
+        // 20f: ALU — AND, OR, EOR
         {
             TestSpc700 spc;
             spc.reset();
@@ -5394,7 +5330,7 @@ int main() {
             std::printf("  [20f] ALU AND/OR/EOR passed\n");
         }
 
-        // ----- 20g: ALU — CMP -----
+        // 20g: ALU — CMP
         {
             TestSpc700 spc;
             spc.reset();
@@ -5416,7 +5352,7 @@ int main() {
             std::printf("  [20g] ALU CMP passed\n");
         }
 
-        // ----- 20h: ALU — shift/rotate -----
+        // 20h: ALU — shift/rotate
         {
             TestSpc700 spc;
             spc.reset();
@@ -5449,7 +5385,7 @@ int main() {
             std::printf("  [20h] ALU shift/rotate passed\n");
         }
 
-        // ----- 20i: Register transfer MOV X,A / MOV A,X / MOV Y,A / MOV A,Y -----
+        // 20i: Register transfer MOV X,A / MOV A,X / MOV Y,A / MOV A,Y
         {
             TestSpc700 spc;
             spc.reset();
@@ -5478,7 +5414,7 @@ int main() {
             std::printf("  [20i] Register transfer passed\n");
         }
 
-        // ----- 20j: Direct page read/write + P flag -----
+        // 20j: Direct page read/write + P flag
         {
             TestSpc700 spc;
             spc.reset();
@@ -5504,7 +5440,7 @@ int main() {
             std::printf("  [20j] Direct page + P flag passed\n");
         }
 
-        // ----- 20k: Push/Pull + stack -----
+        // 20k: Push/Pull + stack
         {
             TestSpc700 spc;
             spc.reset();
@@ -5535,7 +5471,7 @@ int main() {
             std::printf("  [20k] Push/Pull + stack passed\n");
         }
 
-        // ----- 20l: Branch instructions -----
+        // 20l: Branch instructions
         {
             TestSpc700 spc;
             spc.reset();
@@ -5570,7 +5506,7 @@ int main() {
             std::printf("  [20l] Branch instructions passed\n");
         }
 
-        // ----- 20m: CALL/RET -----
+        // 20m: CALL/RET
         {
             TestSpc700 spc;
             spc.reset();
@@ -5596,7 +5532,7 @@ int main() {
             std::printf("  [20m] CALL/RET passed\n");
         }
 
-        // ----- 20n: TCALL vector -----
+        // 20n: TCALL vector
         {
             TestSpc700 spc;
             spc.reset();
@@ -5622,7 +5558,7 @@ int main() {
             std::printf("  [20n] TCALL vector passed\n");
         }
 
-        // ----- 20o: INC/DEC register -----
+        // 20o: INC/DEC register
         {
             TestSpc700 spc;
             spc.reset();
@@ -5650,7 +5586,7 @@ int main() {
             std::printf("  [20o] INC/DEC register passed\n");
         }
 
-        // ----- 20p: 16-bit ADDW/SUBW/CMPW/MOVW -----
+        // 20p: 16-bit ADDW/SUBW/CMPW/MOVW
         {
             TestSpc700 spc;
             spc.reset();
@@ -5691,7 +5627,7 @@ int main() {
             std::printf("  [20p] 16-bit ADDW/SUBW/CMPW/MOVW passed\n");
         }
 
-        // ----- 20q: INCW/DECW -----
+        // 20q: INCW/DECW
         {
             TestSpc700 spc;
             spc.reset();
@@ -5727,7 +5663,7 @@ int main() {
             std::printf("  [20q] INCW/DECW passed\n");
         }
 
-        // ----- 20r: MUL / DIV -----
+        // 20r: MUL / DIV
         {
             TestSpc700 spc;
             spc.reset();
@@ -5750,7 +5686,7 @@ int main() {
             std::printf("  [20r] MUL/DIV passed\n");
         }
 
-        // ----- 20s: XCN (exchange nibbles) -----
+        // 20s: XCN (exchange nibbles)
         {
             TestSpc700 spc;
             spc.reset();
@@ -5768,7 +5704,7 @@ int main() {
             std::printf("  [20s] XCN (exchange nibbles) passed\n");
         }
 
-        // ----- 20t: Flag manipulation (SETC/CLRC/CMC/CLRP/SETP/CLRV/EI/DI) -----
+        // 20t: Flag manipulation (SETC/CLRC/CMC/CLRP/SETP/CLRV/EI/DI)
         {
             TestSpc700 spc;
             spc.reset();
@@ -5800,7 +5736,7 @@ int main() {
             std::printf("  [20t] Flag manipulation passed\n");
         }
 
-        // ----- 20u: PUSH/POP PSW -----
+        // 20u: PUSH/POP PSW
         {
             TestSpc700 spc;
             spc.reset();
@@ -5817,7 +5753,7 @@ int main() {
             std::printf("  [20u] PUSH/POP PSW passed\n");
         }
 
-        // ----- 20v: Absolute addressing -----
+        // 20v: Absolute addressing
         {
             TestSpc700 spc;
             spc.reset();
@@ -5835,7 +5771,7 @@ int main() {
             std::printf("  [20v] Absolute addressing passed\n");
         }
 
-        // ----- 20w: Indexed indirect [dp+X] / [dp]+Y -----
+        // 20w: Indexed indirect [dp+X] / [dp]+Y
         {
             TestSpc700 spc;
             spc.reset();
@@ -5865,7 +5801,7 @@ int main() {
             std::printf("  [20w] Indexed indirect passed\n");
         }
 
-        // ----- 20x: BRK -----
+        // 20x: BRK
         {
             TestSpc700 spc;
             spc.reset();
@@ -5887,7 +5823,7 @@ int main() {
             std::printf("  [20x] BRK passed\n");
         }
 
-        // ----- 20y: SLEEP/STOP -----
+        // 20y: SLEEP/STOP
         {
             TestSpc700 spc;
             spc.reset();
@@ -5908,7 +5844,7 @@ int main() {
             std::printf("  [20y] SLEEP/STOP passed\n");
         }
 
-        // ----- 20z: SET1/CLR1 (bit set/clear in dp) -----
+        // 20z: SET1/CLR1 (bit set/clear in dp)
         {
             TestSpc700 spc;
             spc.reset();
@@ -5934,7 +5870,7 @@ int main() {
             std::printf("  [20z] SET1/CLR1 bit operations passed\n");
         }
 
-        // ----- 20aa: DBNZ Y / DBNZ dp -----
+        // 20aa: DBNZ Y / DBNZ dp
         {
             TestSpc700 spc;
             spc.reset();
@@ -5958,7 +5894,7 @@ int main() {
             std::printf("  [20aa] DBNZ passed\n");
         }
 
-        // ----- 20ab: MOV (X++),A / MOV A,(X++) -----
+        // 20ab: MOV (X++),A / MOV A,(X++)
         {
             TestSpc700 spc;
             spc.reset();
@@ -5984,7 +5920,7 @@ int main() {
             std::printf("  [20ab] MOV (X++)/A auto-increment passed\n");
         }
 
-        // ----- 20ac: TSX / TXS -----
+        // 20ac: TSX / TXS
         {
             TestSpc700 spc;
             spc.reset();
@@ -6006,7 +5942,7 @@ int main() {
             std::printf("  [20ac] TSX/TXS passed\n");
         }
 
-        // ----- 20ad: Direct dp,dp and dp,#imm operations -----
+        // 20ad: Direct dp,dp and dp,#imm operations
         {
             TestSpc700 spc;
             spc.reset();
@@ -6030,7 +5966,7 @@ int main() {
             std::printf("  [20ad] Direct dp,dp and dp,#imm passed\n");
         }
 
-        // ----- 20ae: JMP abs / JMP [abs+X] -----
+        // 20ae: JMP abs / JMP [abs+X]
         {
             TestSpc700 spc;
             spc.reset();
@@ -6050,7 +5986,7 @@ int main() {
             std::printf("  [20ae] JMP abs / JMP [abs+X] passed\n");
         }
 
-        // ----- 20af: NOP -----
+        // 20af: NOP
         {
             TestSpc700 spc;
             spc.reset();
@@ -6064,15 +6000,13 @@ int main() {
         std::printf("[SPC700] All SPC700 CPU core tests passed\n");
     }
 
-    // ========================================================================
     // Test 21: APU ↔ CPU communication ports (Step 24)
-    // ========================================================================
     {
         std::printf("[APU Ports] Running APU communication port tests...\n");
 
         using namespace snes::core;
 
-        // ----- 21a: SMP power-on state -----
+        // 21a: SMP power-on state
         {
             Smp smp;
             // IPL ROM enabled by default
@@ -6096,7 +6030,7 @@ int main() {
             std::printf("  [21a] SMP power-on state passed\n");
         }
 
-        // ----- 21b: Bidirectional port communication -----
+        // 21b: Bidirectional port communication
         {
             Smp smp;
 
@@ -6123,7 +6057,7 @@ int main() {
             std::printf("  [21b] Bidirectional port communication passed\n");
         }
 
-        // ----- 21c: All 4 ports independently -----
+        // 21c: All 4 ports independently
         {
             Smp smp;
 
@@ -6154,7 +6088,7 @@ int main() {
             std::printf("  [21c] All 4 ports independently passed\n");
         }
 
-        // ----- 21d: CONTROL register ($F1) port clear -----
+        // 21d: CONTROL register ($F1) port clear
         {
             Smp smp;
 
@@ -6184,7 +6118,7 @@ int main() {
             std::printf("  [21d] CONTROL port clear passed\n");
         }
 
-        // ----- 21e: IPL ROM overlay -----
+        // 21e: IPL ROM overlay
         {
             Smp smp;
 
@@ -6218,7 +6152,7 @@ int main() {
             std::printf("  [21e] IPL ROM overlay passed\n");
         }
 
-        // ----- 21f: RAM read/write (non-IO region) -----
+        // 21f: RAM read/write (non-IO region)
         {
             Smp smp;
 
@@ -6237,7 +6171,7 @@ int main() {
             std::printf("  [21f] RAM read/write passed\n");
         }
 
-        // ----- 21g: TEST register ($F0) -----
+        // 21g: TEST register ($F0)
         {
             Smp smp;
 
@@ -6266,7 +6200,7 @@ int main() {
             std::printf("  [21g] TEST register ($F0) passed\n");
         }
 
-        // ----- 21h: DSPADDR register ($F2) -----
+        // 21h: DSPADDR register ($F2)
         {
             Smp smp;
 
@@ -6277,7 +6211,7 @@ int main() {
             std::printf("  [21h] DSPADDR register ($F2) passed\n");
         }
 
-        // ----- 21i: AUXIO registers ($F8/$F9) -----
+        // 21i: AUXIO registers ($F8/$F9)
         {
             Smp smp;
 
@@ -6289,7 +6223,7 @@ int main() {
             std::printf("  [21i] AUXIO registers ($F8/$F9) passed\n");
         }
 
-        // ----- 21j: Write-only / read-only register behavior -----
+        // 21j: Write-only / read-only register behavior
         {
             Smp smp;
 
@@ -6310,7 +6244,7 @@ int main() {
             std::printf("  [21j] Write-only/read-only registers passed\n");
         }
 
-        // ----- 21k: MemoryBus MapApu integration -----
+        // 21k: MemoryBus MapApu integration
         {
             MemoryBus bus;
             Smp smp;
@@ -6344,7 +6278,7 @@ int main() {
             std::printf("  [21k] MemoryBus MapApu integration passed\n");
         }
 
-        // ----- 21l: SPC700 executing IPL ROM reads port -----
+        // 21l: SPC700 executing IPL ROM reads port
         {
             Smp smp;
 
@@ -6399,7 +6333,7 @@ int main() {
             std::printf("  [21l] SPC700 executing port I/O passed\n");
         }
 
-        // ----- 21m: ramDisable behavior -----
+        // 21m: ramDisable behavior
         {
             Smp smp;
             smp.r.p.p = false;  // required for TEST writes
@@ -6427,7 +6361,7 @@ int main() {
         using namespace snes::core;
         std::printf("[SPC700 Timers] Running timer tests...\n");
 
-        // ----- 22a: Timer power-on state -----
+        // 22a: Timer power-on state
         {
             Smp smp;
             // All timer fields should be zero after power-on
@@ -6448,7 +6382,7 @@ int main() {
             std::printf("  [22a] Timer power-on state passed\n");
         }
 
-        // ----- 22b: Timer target register write -----
+        // 22b: Timer target register write
         {
             Smp smp;
             smp.Write(0x00FA, 0x10);  // T0 target = 16
@@ -6467,7 +6401,7 @@ int main() {
             std::printf("  [22b] Timer target register write passed\n");
         }
 
-        // ----- 22c: Timer enable via CONTROL with edge detection -----
+        // 22c: Timer enable via CONTROL with edge detection
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6505,7 +6439,7 @@ int main() {
             std::printf("  [22c] Timer enable via CONTROL with edge detection passed\n");
         }
 
-        // ----- 22d: Timer0 basic counting (Frequency=128) -----
+        // 22d: Timer0 basic counting (Frequency=128)
         {
             Smp smp;
             // Direct setup avoids Write() ticking timers during init
@@ -6541,7 +6475,7 @@ int main() {
             std::printf("  [22d] Timer0 basic counting (Frequency=128) passed\n");
         }
 
-        // ----- 22e: Timer2 basic counting (Frequency=16) -----
+        // 22e: Timer2 basic counting (Frequency=16)
         {
             Smp smp;
             auto& t2 = smp.GetTimer2();
@@ -6561,7 +6495,7 @@ int main() {
             std::printf("  [22e] Timer2 basic counting (Frequency=16) passed\n");
         }
 
-        // ----- 22f: Read-and-clear on $FD/$FE/$FF -----
+        // 22f: Read-and-clear on $FD/$FE/$FF
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6585,7 +6519,7 @@ int main() {
             std::printf("  [22f] Read-and-clear on $FD/$FE/$FF passed\n");
         }
 
-        // ----- 22g: 4-bit counter wraps at 16 -----
+        // 22g: 4-bit counter wraps at 16
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6603,7 +6537,7 @@ int main() {
             std::printf("  [22g] 4-bit counter wraps at 16 passed\n");
         }
 
-        // ----- 22h: 8-bit divider with target=4 -----
+        // 22h: 8-bit divider with target=4
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6623,7 +6557,7 @@ int main() {
             std::printf("  [22h] 8-bit divider with target=4 passed\n");
         }
 
-        // ----- 22i: Target=0 acts as divisor 256 -----
+        // 22i: Target=0 acts as divisor 256
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6644,7 +6578,7 @@ int main() {
             std::printf("  [22i] Target=0 acts as divisor 256 passed\n");
         }
 
-        // ----- 22j: Timer disabled -- stage2/stage3 don't advance -----
+        // 22j: Timer disabled -- stage2/stage3 don't advance
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6658,7 +6592,7 @@ int main() {
             std::printf("  [22j] Timer disabled -- stage2/stage3 don't advance passed\n");
         }
 
-        // ----- 22k: TEST register timersDisable halts timers -----
+        // 22k: TEST register timersDisable halts timers
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6685,7 +6619,7 @@ int main() {
             std::printf("  [22k] TEST register timersDisable halts timers passed\n");
         }
 
-        // ----- 22l: TEST register timersEnable=0 halts timers -----
+        // 22l: TEST register timersEnable=0 halts timers
         {
             Smp smp;
             auto& t0 = smp.GetTimer0();
@@ -6708,7 +6642,7 @@ int main() {
             std::printf("  [22l] TEST register timersEnable=0 halts timers passed\n");
         }
 
-        // ----- 22m: All three timers independent -----
+        // 22m: All three timers independent
         {
             Smp smp;
             smp.GetTimer0().target = 2;
@@ -6732,7 +6666,7 @@ int main() {
             std::printf("  [22m] All three timers independent passed\n");
         }
 
-        // ----- 22n: Timer output via SPC700 MOV instruction -----
+        // 22n: Timer output via SPC700 MOV instruction
         {
             Smp smp;
             // Setup T2 directly for precise control
@@ -6758,7 +6692,7 @@ int main() {
             std::printf("  [22n] Timer output via SPC700 MOV instruction passed\n");
         }
 
-        // ----- 22o: Timers tick during bus operations (Read/Write/Idle) -----
+        // 22o: Timers tick during bus operations (Read/Write/Idle)
         {
             Smp smp;
             // Enable T2 directly with target=1
@@ -6784,14 +6718,12 @@ int main() {
         std::printf("[SPC700 Timers] All timer tests passed\n");
     }
 
-    // ========================================================================
     // Test 23: DSP register model + BRR decoding (Step 26)
-    // ========================================================================
     {
         using namespace snes::core;
         std::printf("[DSP] Running DSP tests...\n");
 
-        // ----- 23a: Power-on state -----
+        // 23a: Power-on state
         {
             Dsp dsp;
             // FLG ($6C) = 0xE0 (mute + echo write disable + soft reset)
@@ -6814,7 +6746,7 @@ int main() {
             std::printf("  [23a] Power-on state passed\n");
         }
 
-        // ----- 23b: Register read/write -----
+        // 23b: Register read/write
         {
             Dsp dsp;
             // Write and read back
@@ -6827,7 +6759,7 @@ int main() {
             std::printf("  [23b] Register read/write passed\n");
         }
 
-        // ----- 23c: ENDX clear on write -----
+        // 23c: ENDX clear on write
         {
             Dsp dsp;
             dsp.Regs()[Dsp::kEndx] = 0xFF;  // Set all end bits
@@ -6836,7 +6768,7 @@ int main() {
             std::printf("  [23c] ENDX clear on write passed\n");
         }
 
-        // ----- 23d: KON buffering -----
+        // 23d: KON buffering
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -6857,7 +6789,7 @@ int main() {
             std::printf("  [23d] KON buffering passed\n");
         }
 
-        // ----- 23e: BRR decode — filter 0 (direct) -----
+        // 23e: BRR decode — filter 0 (direct)
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -6917,7 +6849,7 @@ int main() {
             std::printf("  [23e] BRR decode — filter 0 passed\n");
         }
 
-        // ----- 23f: BRR decode — filter 1 -----
+        // 23f: BRR decode — filter 1
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -6966,7 +6898,7 @@ int main() {
             std::printf("  [23f] BRR decode — filter 1 passed\n");
         }
 
-        // ----- 23g: Gaussian interpolation -----
+        // 23g: Gaussian interpolation
         {
             Dsp dsp;
             auto& v = dsp.GetVoice(0);
@@ -7011,7 +6943,7 @@ int main() {
             std::printf("  [23g] Gaussian interpolation (structure) passed\n");
         }
 
-        // ----- 23h: ADSR envelope — Attack -----
+        // 23h: ADSR envelope — Attack
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7057,7 +6989,7 @@ int main() {
             std::printf("  [23h] ADSR envelope — Attack passed\n");
         }
 
-        // ----- 23i: ADSR envelope — Release (KOFF) -----
+        // 23i: ADSR envelope — Release (KOFF)
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7097,7 +7029,7 @@ int main() {
             std::printf("  [23i] ADSR envelope — Release (KOFF) passed\n");
         }
 
-        // ----- 23j: GAIN — direct mode -----
+        // 23j: GAIN — direct mode
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7134,7 +7066,7 @@ int main() {
             std::printf("  [23j] GAIN — direct mode passed\n");
         }
 
-        // ----- 23k: Noise LFSR -----
+        // 23k: Noise LFSR
         {
             Dsp dsp;
             int initial = dsp.Noise();
@@ -7165,7 +7097,7 @@ int main() {
             std::printf("  [23k] Noise LFSR passed\n");
         }
 
-        // ----- 23l: Counter system -----
+        // 23l: Counter system
         {
             Dsp dsp;
             assert(dsp.Counter() == 0);
@@ -7186,7 +7118,7 @@ int main() {
             std::printf("  [23l] Counter system passed\n");
         }
 
-        // ----- 23m: Voice output (all silent on power-on) -----
+        // 23m: Voice output (all silent on power-on)
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7204,7 +7136,7 @@ int main() {
             std::printf("  [23m] Voice output (silent on power-on) passed\n");
         }
 
-        // ----- 23n: Echo FIR (disabled/no-write mode) -----
+        // 23n: Echo FIR (disabled/no-write mode)
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7232,7 +7164,7 @@ int main() {
             std::printf("  [23n] Echo FIR (echo write disable) passed\n");
         }
 
-        // ----- 23o: Full sample generation -----
+        // 23o: Full sample generation
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7253,7 +7185,7 @@ int main() {
             std::printf("  [23o] Full sample generation passed\n");
         }
 
-        // ----- 23p: SMP ↔ DSP wiring via $F2/$F3 -----
+        // 23p: SMP ↔ DSP wiring via $F2/$F3
         {
             Smp smp;
             Dsp dsp;
@@ -7283,7 +7215,7 @@ int main() {
             std::printf("  [23p] SMP ↔ DSP wiring via $F2/$F3 passed\n");
         }
 
-        // ----- 23q: Voice KON → process → audio output -----
+        // 23q: Voice KON → process → audio output
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7348,7 +7280,7 @@ int main() {
             std::printf("  [23q] Voice KON → process → audio output passed\n");
         }
 
-        // ----- 23r: Soft reset silences all voices -----
+        // 23r: Soft reset silences all voices
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7377,7 +7309,7 @@ int main() {
             std::printf("  [23r] Soft reset silences all voices passed\n");
         }
 
-        // ----- 23s: Pitch modulation -----
+        // 23s: Pitch modulation
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7399,7 +7331,7 @@ int main() {
             std::printf("  [23s] Pitch modulation passed\n");
         }
 
-        // ----- 23t: Noise substitution -----
+        // 23t: Noise substitution
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7442,7 +7374,7 @@ int main() {
             std::printf("  [23t] Noise substitution passed\n");
         }
 
-        // ----- 23u: Echo buffer read/write -----
+        // 23u: Echo buffer read/write
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7471,7 +7403,7 @@ int main() {
             std::printf("  [23u] Echo buffer read/write passed\n");
         }
 
-        // ----- 23v: Multiple Power() calls reset cleanly -----
+        // 23v: Multiple Power() calls reset cleanly
         {
             Dsp dsp;
             uint8_t ram[65536] = {};
@@ -7498,14 +7430,12 @@ int main() {
         std::printf("[DSP] All DSP tests passed\n");
     }
 
-    // ========================================================================
     // Test 24: APU synchronization (Step 27)
-    // ========================================================================
     {
         using namespace snes::core;
         std::printf("[APU Sync] Running APU synchronization tests...\n");
 
-        // ----- 24a: ApuScheduler clock constants -----
+        // 24a: ApuScheduler clock constants
         {
             assert(ApuScheduler::kMasterClockRate == 21477272);
             assert(ApuScheduler::kSmpClockRate    == 1024000);
@@ -7515,7 +7445,7 @@ int main() {
             std::printf("  [24a] Clock constants passed\n");
         }
 
-        // ----- 24b: ApuScheduler ratio math — one frame -----
+        // 24b: ApuScheduler ratio math — one frame
         {
             // One NTSC frame = 357368 master clocks
             // Expected SMP clocks: 357368 * 1024000 / 21477272 ≈ 17038.7
@@ -7531,7 +7461,7 @@ int main() {
             std::printf("  [24b] Ratio math — one frame passed\n");
         }
 
-        // ----- 24c: ApuScheduler ratio math — small increments -----
+        // 24c: ApuScheduler ratio math — small increments
         {
             ApuScheduler sched;
             // Many small increments should accumulate to the same total
@@ -7552,7 +7482,7 @@ int main() {
             std::printf("  [24c] Ratio math — small increments passed\n");
         }
 
-        // ----- 24d: ApuScheduler ratio — long-term accuracy -----
+        // 24d: ApuScheduler ratio — long-term accuracy
         {
             // Run 60 frames and check total SMP cycles
             ApuScheduler sched;
@@ -7578,7 +7508,7 @@ int main() {
             std::printf("  [24d] Ratio — long-term accuracy passed\n");
         }
 
-        // ----- 24e: SMP RunUntil — basic execution -----
+        // 24e: SMP RunUntil — basic execution
         {
             Smp smp;
             Dsp dsp;
@@ -7608,7 +7538,7 @@ int main() {
             std::printf("  [24e] SMP RunUntil — basic execution passed\n");
         }
 
-        // ----- 24f: SMP RunUntil — halted (STOP) -----
+        // 24f: SMP RunUntil — halted (STOP)
         {
             Smp smp;
 
@@ -7628,7 +7558,7 @@ int main() {
             std::printf("  [24f] SMP RunUntil — halted (STOP) passed\n");
         }
 
-        // ----- 24g: DSP sample generation via bus cycles -----
+        // 24g: DSP sample generation via bus cycles
         {
             Smp smp;
             Dsp dsp;
@@ -7656,7 +7586,7 @@ int main() {
             std::printf("  [24g] DSP sample generation via bus cycles passed\n");
         }
 
-        // ----- 24h: ApuScheduler Run — integrated CPU + SMP -----
+        // 24h: ApuScheduler Run — integrated CPU + SMP
         {
             Smp smp;
             Dsp dsp;
@@ -7692,7 +7622,7 @@ int main() {
             std::printf("  [24h] ApuScheduler Run — integrated passed\n");
         }
 
-        // ----- 24i: DSP sample rate — approximately 32 kHz -----
+        // 24i: DSP sample rate — approximately 32 kHz
         {
             Smp smp;
             Dsp dsp;
@@ -7724,7 +7654,7 @@ int main() {
             std::printf("  [24i] DSP sample rate — ~32 kHz passed\n");
         }
 
-        // ----- 24j: Scheduler Reset -----
+        // 24j: Scheduler Reset
         {
             Smp smp;
             Dsp dsp;
@@ -7744,7 +7674,7 @@ int main() {
             std::printf("  [24j] Scheduler Reset passed\n");
         }
 
-        // ----- 24k: No DSP ticking without SetDsp -----
+        // 24k: No DSP ticking without SetDsp
         {
             Smp smp;
             // No DSP attached — tickDsp should be safe (no crash)
@@ -7761,7 +7691,7 @@ int main() {
             std::printf("  [24k] No DSP ticking without SetDsp passed\n");
         }
 
-        // ----- 24l: Timer interaction with RunUntil -----
+        // 24l: Timer interaction with RunUntil
         {
             Smp smp;
             Dsp dsp;
@@ -7792,16 +7722,14 @@ int main() {
         std::printf("[APU Sync] All APU synchronization tests passed\n");
     }
 
-    // ===================================================================
     // Test 25: Dot / Scanline / Frame Timing
-    // ===================================================================
     {
         using snes::core::Timing;
         using snes::core::Region;
 
         std::printf("[Timing] Running timing tests...\n");
 
-        // ----- 25a: Power-on state (NTSC) -----
+        // 25a: Power-on state (NTSC)
         {
             Timing t(Region::NTSC);
             assert(t.HCounter() == 0);
@@ -7818,7 +7746,7 @@ int main() {
             std::printf("  [25a] Power-on state (NTSC) passed\n");
         }
 
-        // ----- 25b: Power-on state (PAL) -----
+        // 25b: Power-on state (PAL)
         {
             Timing t(Region::PAL);
             assert(t.HPeriod() == 1364);
@@ -7827,7 +7755,7 @@ int main() {
             std::printf("  [25b] Power-on state (PAL) passed\n");
         }
 
-        // ----- 25c: Constants -----
+        // 25c: Constants
         {
             assert(Timing::kDotsPerLine == 1364);
             assert(Timing::kDotsPerLineShort == 1360);
@@ -7843,7 +7771,7 @@ int main() {
             std::printf("  [25c] Constants passed\n");
         }
 
-        // ----- 25d: Tick advances H counter -----
+        // 25d: Tick advances H counter
         {
             Timing t(Region::NTSC);
             t.Tick(100);
@@ -7853,7 +7781,7 @@ int main() {
             std::printf("  [25d] H counter advance passed\n");
         }
 
-        // ----- 25e: Scanline wrap -----
+        // 25e: Scanline wrap
         {
             Timing t(Region::NTSC);
             // Tick one full scanline (1364 clocks)
@@ -7864,7 +7792,7 @@ int main() {
             std::printf("  [25e] Scanline wrap passed\n");
         }
 
-        // ----- 25f: Full frame wraps to V=0 -----
+        // 25f: Full frame wraps to V=0
         {
             Timing t(Region::NTSC);
             // Even field: 262 scanlines × 1364 = 357,368 clocks
@@ -7878,7 +7806,7 @@ int main() {
             std::printf("  [25f] Full frame wrap passed\n");
         }
 
-        // ----- 25g: Field toggle -----
+        // 25g: Field toggle
         {
             Timing t(Region::NTSC);
             assert(t.Field() == false);
@@ -7895,7 +7823,7 @@ int main() {
             std::printf("  [25g] Field toggle passed\n");
         }
 
-        // ----- 25h: Short scanline (NTSC non-interlace odd field, line 240) -----
+        // 25h: Short scanline (NTSC non-interlace odd field, line 240)
         {
             Timing t(Region::NTSC);
             // Run one full even frame to get to odd field
@@ -7917,7 +7845,7 @@ int main() {
             std::printf("  [25h] Short scanline (NTSC) passed\n");
         }
 
-        // ----- 25i: PAL long scanline (interlace odd field, line 311) -----
+        // 25i: PAL long scanline (interlace odd field, line 311)
         {
             Timing t(Region::PAL);
             t.SetInterlace(true);
@@ -7950,7 +7878,7 @@ int main() {
             std::printf("  [25i] PAL long scanline passed\n");
         }
 
-        // ----- 25j: HBlank detection -----
+        // 25j: HBlank detection
         {
             Timing t(Region::NTSC);
             assert(!t.InHBlank());
@@ -7962,7 +7890,7 @@ int main() {
             std::printf("  [25j] HBlank detection passed\n");
         }
 
-        // ----- 25k: VBlank detection -----
+        // 25k: VBlank detection
         {
             Timing t(Region::NTSC);
             assert(!t.InVBlank());
@@ -7981,7 +7909,7 @@ int main() {
             std::printf("  [25k] VBlank detection passed\n");
         }
 
-        // ----- 25l: Overscan changes VDisp -----
+        // 25l: Overscan changes VDisp
         {
             Timing t(Region::NTSC);
             t.SetVDisp(240);
@@ -7998,7 +7926,7 @@ int main() {
             std::printf("  [25l] Overscan VDisp change passed\n");
         }
 
-        // ----- 25m: onFrameBegin callback -----
+        // 25m: onFrameBegin callback
         {
             Timing t(Region::NTSC);
             int count = 0;
@@ -8019,7 +7947,7 @@ int main() {
             std::printf("  [25m] onFrameBegin callback passed\n");
         }
 
-        // ----- 25n: onScanline callback -----
+        // 25n: onScanline callback
         {
             Timing t(Region::NTSC);
             std::vector<uint16_t> lines;
@@ -8035,7 +7963,7 @@ int main() {
             std::printf("  [25n] onScanline callback passed\n");
         }
 
-        // ----- 25n2: onRenderCycle callback -----
+        // 25n2: onRenderCycle callback
         {
             Timing t(Region::NTSC);
             std::vector<uint16_t> lines;
@@ -8050,7 +7978,7 @@ int main() {
             std::printf("  [25n2] onRenderCycle callback passed\n");
         }
 
-        // ----- 25o: onVBlankBegin callback -----
+        // 25o: onVBlankBegin callback
         {
             Timing t(Region::NTSC);
             int vblankCount = 0;
@@ -8072,7 +8000,7 @@ int main() {
             std::printf("  [25o] onVBlankBegin callback passed\n");
         }
 
-        // ----- 25p: onNmiPoint callback -----
+        // 25p: onNmiPoint callback
         {
             Timing t(Region::NTSC);
             int nmiCount = 0;
@@ -8092,7 +8020,7 @@ int main() {
             std::printf("  [25p] onNmiPoint callback passed\n");
         }
 
-        // ----- 25q: onDramRefresh callback -----
+        // 25q: onDramRefresh callback
         {
             Timing t(Region::NTSC);
             int refreshCount = 0;
@@ -8108,7 +8036,7 @@ int main() {
             std::printf("  [25q] onDramRefresh callback passed\n");
         }
 
-        // ----- 25r: onHdmaTransfer callback -----
+        // 25r: onHdmaTransfer callback
         {
             Timing t(Region::NTSC);
             std::vector<uint16_t> hdmaLines;
@@ -8132,7 +8060,7 @@ int main() {
             std::printf("  [25r] onHdmaTransfer callback passed\n");
         }
 
-        // ----- 25s: HDMA doesn't fire in VBlank -----
+        // 25s: HDMA doesn't fire in VBlank
         {
             Timing t(Region::NTSC);
             int hdmaCount = 0;
@@ -8149,7 +8077,7 @@ int main() {
             std::printf("  [25s] HDMA silent in VBlank passed\n");
         }
 
-        // ----- 25t: HBlank doesn't fire in VBlank -----
+        // 25t: HBlank doesn't fire in VBlank
         {
             Timing t(Region::NTSC);
             int hblankCount = 0;
@@ -8166,7 +8094,7 @@ int main() {
             std::printf("  [25t] HBlank silent in VBlank passed\n");
         }
 
-        // ----- 25u: MasterClocksThisFrame utility -----
+        // 25u: MasterClocksThisFrame utility
         {
             Timing t(Region::NTSC);
             // Even field (field=0): all 262 lines normal
@@ -8182,7 +8110,7 @@ int main() {
             std::printf("  [25u] MasterClocksThisFrame passed\n");
         }
 
-        // ----- 25v: Reset clears everything -----
+        // 25v: Reset clears everything
         {
             Timing t(Region::NTSC);
             t.Tick(100000);
@@ -8199,7 +8127,7 @@ int main() {
             std::printf("  [25v] Reset passed\n");
         }
 
-        // ----- 25w: Region switch -----
+        // 25w: Region switch
         {
             Timing t(Region::NTSC);
             assert(t.VPeriod() == 262);
@@ -8209,7 +8137,7 @@ int main() {
             std::printf("  [25w] Region switch passed\n");
         }
 
-        // ----- 25x: Full frame timing accuracy (NTSC even + odd) -----
+        // 25x: Full frame timing accuracy (NTSC even + odd)
         {
             Timing t(Region::NTSC);
             uint64_t frameBoundaries = 0;
@@ -8231,7 +8159,7 @@ int main() {
             std::printf("  [25x] 60-frame accuracy (NTSC) passed\n");
         }
 
-        // ----- 25y: Multiple callbacks in one tick -----
+        // 25y: Multiple callbacks in one tick
         {
             Timing t(Region::NTSC);
             int vblank = 0, nmi = 0, dram = 0;
@@ -8248,7 +8176,7 @@ int main() {
             std::printf("  [25y] Multiple callbacks in one tick passed\n");
         }
 
-        // ----- 25z: HPeriodForScanline utility -----
+        // 25z: HPeriodForScanline utility
         {
             Timing t(Region::NTSC);
             // Even field: all lines are 1364
@@ -8269,9 +8197,7 @@ int main() {
         std::printf("[Timing] All timing tests passed\n");
     }
 
-    // ===================================================================
     // Test 26: NMI / IRQ Dispatch (IrqController)
-    // ===================================================================
     {
         using snes::core::IrqController;
         using snes::core::Timing;
@@ -8279,7 +8205,7 @@ int main() {
 
         std::printf("[NMI/IRQ] Running NMI/IRQ dispatch tests...\n");
 
-        // ----- 26a: Power-on state -----
+        // 26a: Power-on state
         {
             IrqController irq;
             assert(!irq.NmiEnabled());
@@ -8298,7 +8224,7 @@ int main() {
             std::printf("  [26a] Power-on state passed\n");
         }
 
-        // ----- 26b: H/V timer configuration -----
+        // 26b: H/V timer configuration
         {
             IrqController irq;
             irq.SetHTime(100);
@@ -8314,7 +8240,7 @@ int main() {
             std::printf("  [26b] H/V timer configuration passed\n");
         }
 
-        // ----- 26c: NMI detection — basic edge at V=vdisp -----
+        // 26c: NMI detection — basic edge at V=vdisp
         {
             IrqController irq;
             // Enable NMI
@@ -8349,7 +8275,7 @@ int main() {
             std::printf("  [26c] NMI detection at V=vdisp passed\n");
         }
 
-        // ----- 26d: NMI edge detection — no re-trigger in same VBlank -----
+        // 26d: NMI edge detection — no re-trigger in same VBlank
         {
             IrqController irq;
             irq.NmitimenUpdate(0x80);
@@ -8371,7 +8297,7 @@ int main() {
             std::printf("  [26d] NMI no re-trigger in VBlank passed\n");
         }
 
-        // ----- 26e: NMI re-triggers on next frame -----
+        // 26e: NMI re-triggers on next frame
         {
             IrqController irq;
             irq.NmitimenUpdate(0x80);
@@ -8396,7 +8322,7 @@ int main() {
             std::printf("  [26e] NMI re-triggers on next frame passed\n");
         }
 
-        // ----- 26f: NMI disabled — no transition -----
+        // 26f: NMI disabled — no transition
         {
             IrqController irq;
             // NMI NOT enabled (data = 0)
@@ -8416,7 +8342,7 @@ int main() {
             std::printf("  [26f] NMI disabled — no transition passed\n");
         }
 
-        // ----- 26g: NMI enable rising edge during VBlank -----
+        // 26g: NMI enable rising edge during VBlank
         {
             IrqController irq;
             uint16_t vdisp = 225, hperiod = 1364;
@@ -8434,7 +8360,7 @@ int main() {
             std::printf("  [26g] NMI enable rising edge during VBlank passed\n");
         }
 
-        // ----- 26h: RDNMI read-and-clear with hold protection -----
+        // 26h: RDNMI read-and-clear with hold protection
         {
             IrqController irq;
             irq.NmitimenUpdate(0x80);
@@ -8466,7 +8392,7 @@ int main() {
             std::printf("  [26h] RDNMI hold protection passed\n");
         }
 
-        // ----- 26i: NMI 2-clock communication delay -----
+        // 26i: NMI 2-clock communication delay
         {
             IrqController irq;
             irq.NmitimenUpdate(0x80);
@@ -8486,7 +8412,7 @@ int main() {
             std::printf("  [26i] NMI 2-clock delay passed\n");
         }
 
-        // ----- 26j: H-IRQ basic -----
+        // 26j: H-IRQ basic
         {
             IrqController irq;
             // Enable H-IRQ only (bit 4): data = 0x10
@@ -8519,7 +8445,7 @@ int main() {
             std::printf("  [26j] H-IRQ basic passed\n");
         }
 
-        // ----- 26k: V-IRQ basic -----
+        // 26k: V-IRQ basic
         {
             IrqController irq;
             // Enable V-IRQ only (bit 5): data = 0x20
@@ -8544,7 +8470,7 @@ int main() {
             std::printf("  [26k] V-IRQ basic passed\n");
         }
 
-        // ----- 26l: HV-IRQ — both must match -----
+        // 26l: HV-IRQ — both must match
         {
             IrqController irq;
             // Enable both H and V IRQ (bits 4+5): data = 0x30
@@ -8569,7 +8495,7 @@ int main() {
             std::printf("  [26l] HV-IRQ both match passed\n");
         }
 
-        // ----- 26m: IRQ with I flag set — IrqTest returns false -----
+        // 26m: IRQ with I flag set — IrqTest returns false
         {
             IrqController irq;
             irq.NmitimenUpdate(0x20);
@@ -8588,7 +8514,7 @@ int main() {
             std::printf("  [26m] IRQ with I flag set passed\n");
         }
 
-        // ----- 26n: TIMEUP read-and-clear with hold -----
+        // 26n: TIMEUP read-and-clear with hold
         {
             IrqController irq;
             irq.NmitimenUpdate(0x20);
@@ -8619,7 +8545,7 @@ int main() {
             std::printf("  [26n] TIMEUP hold protection passed\n");
         }
 
-        // ----- 26o: IRQ 10-clock communication delay -----
+        // 26o: IRQ 10-clock communication delay
         {
             IrqController irq;
             irq.NmitimenUpdate(0x10);  // H-IRQ
@@ -8638,7 +8564,7 @@ int main() {
             std::printf("  [26o] IRQ 10-clock delay passed\n");
         }
 
-        // ----- 26p: IRQ lock from NMITIMEN write -----
+        // 26p: IRQ lock from NMITIMEN write
         {
             IrqController irq;
 
@@ -8656,7 +8582,7 @@ int main() {
             std::printf("  [26p] IRQ lock from NMITIMEN passed\n");
         }
 
-        // ----- 26q: IRQ re-triggers on next scanline (H-IRQ) -----
+        // 26q: IRQ re-triggers on next scanline (H-IRQ)
         {
             IrqController irq;
             irq.NmitimenUpdate(0x10);  // H-IRQ
@@ -8687,7 +8613,7 @@ int main() {
             std::printf("  [26q] H-IRQ re-triggers per scanline passed\n");
         }
 
-        // ----- 26r: Disabling IRQ clears state -----
+        // 26r: Disabling IRQ clears state
         {
             IrqController irq;
             irq.NmitimenUpdate(0x20);  // V-IRQ
@@ -8709,7 +8635,7 @@ int main() {
             std::printf("  [26r] Disabling IRQ clears state passed\n");
         }
 
-        // ----- 26s: Reset clears everything -----
+        // 26s: Reset clears everything
         {
             IrqController irq;
             irq.NmitimenUpdate(0xB0);  // NMI + V-IRQ + H-IRQ
@@ -8728,7 +8654,7 @@ int main() {
             std::printf("  [26s] Reset clears everything passed\n");
         }
 
-        // ----- 26t: Last-dot guard — IRQ cannot fire at V=0 H=0 -----
+        // 26t: Last-dot guard — IRQ cannot fire at V=0 H=0
         {
             IrqController irq;
             irq.NmitimenUpdate(0x30);  // HV-IRQ
@@ -8753,7 +8679,7 @@ int main() {
             std::printf("  [26t] Last-dot guard passed\n");
         }
 
-        // ----- 26u: Integration with Timing — onIrqPoll wired -----
+        // 26u: Integration with Timing — onIrqPoll wired
         {
             Timing t(Region::NTSC);
             IrqController irq;
@@ -8773,7 +8699,7 @@ int main() {
             std::printf("  [26u] Timing onIrqPoll integration passed\n");
         }
 
-        // ----- 26v: NMI detection through Timing integration -----
+        // 26v: NMI detection through Timing integration
         {
             Timing t(Region::NTSC);
             IrqController irq;
@@ -8799,7 +8725,7 @@ int main() {
             std::printf("  [26v] NMI through Timing integration passed\n");
         }
 
-        // ----- 26w: H-IRQ through Timing integration -----
+        // 26w: H-IRQ through Timing integration
         {
             Timing t(Region::NTSC);
             IrqController irq;
@@ -8823,7 +8749,7 @@ int main() {
             std::printf("  [26w] H-IRQ through Timing passed\n");
         }
 
-        // ----- 26x: CpuIoRegisters RDNMI callback wiring -----
+        // 26x: CpuIoRegisters RDNMI callback wiring
         {
             IrqController irq;
             snes::core::CpuIoRegisters cpuIo;
@@ -8851,7 +8777,7 @@ int main() {
             std::printf("  [26x] CpuIoRegisters RDNMI wiring passed\n");
         }
 
-        // ----- 26y: CpuIoRegisters TIMEUP callback wiring -----
+        // 26y: CpuIoRegisters TIMEUP callback wiring
         {
             IrqController irq;
             snes::core::CpuIoRegisters cpuIo;
@@ -8876,7 +8802,7 @@ int main() {
             std::printf("  [26y] CpuIoRegisters TIMEUP wiring passed\n");
         }
 
-        // ----- 26z: CpuIoRegisters HV time change callback -----
+        // 26z: CpuIoRegisters HV time change callback
         {
             IrqController irq;
             snes::core::CpuIoRegisters cpuIo;
@@ -8914,9 +8840,7 @@ int main() {
         std::printf("[NMI/IRQ] All NMI/IRQ dispatch tests passed\n");
     }
 
-    // ========================================================================
     // Test 27: Auto-joypad polling
-    // ========================================================================
     {
         using snes::core::AutoJoypad;
         using snes::core::InputState;
@@ -8925,7 +8849,7 @@ int main() {
 
         std::printf("[AutoJoypad] Running auto-joypad polling tests...\n");
 
-        // ----- 27a: Power-on state -----
+        // 27a: Power-on state
         {
             AutoJoypad aj;
             assert(aj.Counter() == 33);
@@ -8938,7 +8862,7 @@ int main() {
             std::printf("  [27a] Power-on state passed\n");
         }
 
-        // ----- 27b: InputStateToSnesFormat — individual buttons -----
+        // 27b: InputStateToSnesFormat — individual buttons
         {
             // Each button maps to a specific bit in the 16-bit register:
             //   B Y Sel Sta Up Dn Le Ri A X L R 0 0 0 0
@@ -8959,7 +8883,7 @@ int main() {
             std::printf("  [27b] InputStateToSnesFormat individual buttons passed\n");
         }
 
-        // ----- 27c: InputStateToSnesFormat — D-pad opposition -----
+        // 27c: InputStateToSnesFormat — D-pad opposition
         {
             InputState s{};
             // Up + Down = neither
@@ -8978,7 +8902,7 @@ int main() {
             std::printf("  [27c] InputStateToSnesFormat D-pad opposition passed\n");
         }
 
-        // ----- 27d: InputStateToSnesFormat — combined buttons -----
+        // 27d: InputStateToSnesFormat — combined buttons
         {
             InputState s{};
             s.a = true; s.b = true; s.start = true; s.r = true;
@@ -8987,7 +8911,7 @@ int main() {
             std::printf("  [27d] InputStateToSnesFormat combined buttons passed\n");
         }
 
-        // ----- 27e: FrameBegin resets counter -----
+        // 27e: FrameBegin resets counter
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9001,7 +8925,7 @@ int main() {
             std::printf("  [27e] FrameBegin resets counter passed\n");
         }
 
-        // ----- 27f: Polling disabled — no activation -----
+        // 27f: Polling disabled — no activation
         {
             AutoJoypad aj;
             // autoJoypadPoll is false by default
@@ -9012,7 +8936,7 @@ int main() {
             std::printf("  [27f] Polling disabled — no activation passed\n");
         }
 
-        // ----- 27g: Trigger condition — correct V/H -----
+        // 27g: Trigger condition — correct V/H
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9038,7 +8962,7 @@ int main() {
             std::printf("  [27g] Trigger condition passed\n");
         }
 
-        // ----- 27h: Complete polling — A button only -----
+        // 27h: Complete polling — A button only
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9071,7 +8995,7 @@ int main() {
             std::printf("  [27h] Complete polling — A button passed\n");
         }
 
-        // ----- 27i: Complete polling — multiple buttons (B+Start+R) -----
+        // 27i: Complete polling — multiple buttons (B+Start+R)
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9091,7 +9015,7 @@ int main() {
             std::printf("  [27i] Complete polling — multiple buttons passed\n");
         }
 
-        // ----- 27j: Complete polling — port 2 -----
+        // 27j: Complete polling — port 2
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9112,7 +9036,7 @@ int main() {
             std::printf("  [27j] Complete polling — port 2 passed\n");
         }
 
-        // ----- 27k: Disable mid-poll aborts -----
+        // 27k: Disable mid-poll aborts
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9136,7 +9060,7 @@ int main() {
             std::printf("  [27k] Disable mid-poll aborts passed\n");
         }
 
-        // ----- 27l: IsPolling busy flag -----
+        // 27l: IsPolling busy flag
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9159,7 +9083,7 @@ int main() {
             std::printf("  [27l] IsPolling busy flag passed\n");
         }
 
-        // ----- 27m: Re-trigger on next frame -----
+        // 27m: Re-trigger on next frame
         {
             AutoJoypad aj;
             aj.SetAutoJoypadPoll(true);
@@ -9201,7 +9125,7 @@ int main() {
             std::printf("  [27m] Re-trigger on next frame passed\n");
         }
 
-        // ----- 27n: Timing onJoypadPoll fires every 128 clocks -----
+        // 27n: Timing onJoypadPoll fires every 128 clocks
         {
             Timing t;
             int count = 0;
@@ -9213,7 +9137,7 @@ int main() {
             std::printf("  [27n] Timing onJoypadPoll frequency passed\n");
         }
 
-        // ----- 27o: Full pipeline — Timing drives AutoJoypad -----
+        // 27o: Full pipeline — Timing drives AutoJoypad
         {
             Timing t;
             AutoJoypad aj;
@@ -9257,7 +9181,7 @@ int main() {
             std::printf("  [27o] Full pipeline — Timing + AutoJoypad passed\n");
         }
 
-        // ----- 27p: CpuIoRegisters HVBJOY integration -----
+        // 27p: CpuIoRegisters HVBJOY integration
         {
             AutoJoypad aj;
             snes::core::CpuIoRegisters cpuIo;
@@ -9298,9 +9222,7 @@ int main() {
         std::printf("[AutoJoypad] All auto-joypad polling tests passed\n");
     }
 
-    // ========================================================================
     // Test 28: DRAM refresh
-    // ========================================================================
     {
         using snes::core::SnesCpu;
         using snes::core::Timing;
@@ -9308,7 +9230,7 @@ int main() {
 
         std::printf("[DRAM Refresh] Running DRAM refresh tests...\n");
 
-        // ----- 28a: Penalty is exactly 40 master clocks -----
+        // 28a: Penalty is exactly 40 master clocks
         {
             RamBus bus;
             // Reset vector → $8000
@@ -9326,7 +9248,7 @@ int main() {
             std::printf("  [28a] Penalty is exactly 40 master clocks passed\n");
         }
 
-        // ----- 28b: DRAM refresh state transitions (5 sub-steps) -----
+        // 28b: DRAM refresh state transitions (5 sub-steps)
         {
             RamBus bus;
             bus.data_[0xFFFC] = 0x00;
@@ -9348,7 +9270,7 @@ int main() {
             std::printf("  [28b] DRAM refresh state transitions passed\n");
         }
 
-        // ----- 28c: ALU step callback invoked 5 times -----
+        // 28c: ALU step callback invoked 5 times
         {
             RamBus bus;
             bus.data_[0xFFFC] = 0x00;
@@ -9368,7 +9290,7 @@ int main() {
             std::printf("  [28c] ALU step callback invoked 5 times passed\n");
         }
 
-        // ----- 28d: Sub-step structure — state sequence verification -----
+        // 28d: Sub-step structure — state sequence verification
         {
             RamBus bus;
             bus.data_[0xFFFC] = 0x00;
@@ -9398,7 +9320,7 @@ int main() {
             std::printf("  [28d] Sub-step state sequence verification passed\n");
         }
 
-        // ----- 28e: Penalty adds to instruction clock total -----
+        // 28e: Penalty adds to instruction clock total
         {
             RamBus bus;
             bus.data_[0xFFFC] = 0x00;
@@ -9423,7 +9345,7 @@ int main() {
             std::printf("  [28e] Penalty adds to instruction clock total passed\n");
         }
 
-        // ----- 28f: Multiple refreshes accumulate correctly -----
+        // 28f: Multiple refreshes accumulate correctly
         {
             RamBus bus;
             bus.data_[0xFFFC] = 0x00;
@@ -9443,7 +9365,7 @@ int main() {
             std::printf("  [28f] Multiple refreshes accumulate correctly passed\n");
         }
 
-        // ----- 28g: Timing onDramRefresh fires once per scanline -----
+        // 28g: Timing onDramRefresh fires once per scanline
         {
             Timing t;
             int refreshCount = 0;
@@ -9461,7 +9383,7 @@ int main() {
             std::printf("  [28g] Timing onDramRefresh once per scanline passed\n");
         }
 
-        // ----- 28h: Timing callback fires at correct H position -----
+        // 28h: Timing callback fires at correct H position
         {
             Timing t;
             uint16_t fireH = 0xFFFF;
@@ -9479,7 +9401,7 @@ int main() {
             std::printf("  [28h] Timing fires at correct H position passed\n");
         }
 
-        // ----- 28i: Full pipeline — Timing drives SnesCpu -----
+        // 28i: Full pipeline — Timing drives SnesCpu
         {
             RamBus bus;
             bus.data_[0xFFFC] = 0x00;
@@ -9509,7 +9431,7 @@ int main() {
             std::printf("  [28i] Full pipeline — Timing drives SnesCpu passed\n");
         }
 
-        // ----- 28j: Full frame = 262 refreshes (NTSC) -----
+        // 28j: Full frame = 262 refreshes (NTSC)
         {
             Timing t;
             int refreshCount = 0;
@@ -9523,7 +9445,7 @@ int main() {
             std::printf("  [28j] Full NTSC frame = 262 refreshes passed\n");
         }
 
-        // ----- 28k: Full frame = 312 refreshes (PAL) -----
+        // 28k: Full frame = 312 refreshes (PAL)
         {
             Timing t(Region::PAL);
             int refreshCount = 0;
@@ -9536,7 +9458,7 @@ int main() {
             std::printf("  [28k] Full PAL frame = 312 refreshes passed\n");
         }
 
-        // ----- 28l: Constants match bsnes -----
+        // 28l: Constants match bsnes
         {
             assert(Timing::kDramRefreshPos == 538);
             assert(Timing::kDramRefreshClocks == 40);
@@ -9546,9 +9468,7 @@ int main() {
         std::printf("[DRAM Refresh] All DRAM refresh tests passed\n");
     }
 
-    // ========================================================================
     // Test 29: Wire StepFrame() — full system integration
-    // ========================================================================
     {
         using namespace snes::core;
         std::printf("[StepFrame Integration] Running integration tests...\n");
@@ -9625,7 +9545,7 @@ int main() {
             return rom;
         };
 
-        // ----- 29a: Emulator initializes after LoadCartridge -----
+        // 29a: Emulator initializes after LoadCartridge
         {
             auto emu = std::make_unique<Emulator>();
             assert(!emu->Initialized());
@@ -9639,7 +9559,7 @@ int main() {
             std::printf("  [29a] Emulator initializes after LoadCartridge passed\n");
         }
 
-        // ----- 29b: StepFrame completes and returns valid result -----
+        // 29b: StepFrame completes and returns valid result
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9651,7 +9571,7 @@ int main() {
             std::printf("  [29b] StepFrame completes with valid result passed\n");
         }
 
-        // ----- 29c: Frame timing — masterCycles ≈ 357,368 per frame -----
+        // 29c: Frame timing — masterCycles ≈ 357,368 per frame
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9670,7 +9590,7 @@ int main() {
                         static_cast<unsigned long long>(delta));
         }
 
-        // ----- 29d: Multiple frames increment correctly -----
+        // 29d: Multiple frames increment correctly
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9685,7 +9605,7 @@ int main() {
             std::printf("  [29d] Multiple frames increment correctly passed\n");
         }
 
-        // ----- 29e: CPU executes — WRAM is modified -----
+        // 29e: CPU executes — WRAM is modified
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9703,7 +9623,7 @@ int main() {
             std::printf("  [29e] CPU executes — WRAM modified passed\n");
         }
 
-        // ----- 29f: Timing frame count advances -----
+        // 29f: Timing frame count advances
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9715,7 +9635,7 @@ int main() {
             std::printf("  [29f] Timing frame count advances passed\n");
         }
 
-        // ----- 29g: SMP synchronized (cycle count > 0) -----
+        // 29g: SMP synchronized (cycle count > 0)
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9729,7 +9649,7 @@ int main() {
                         static_cast<unsigned long long>(emu->GetSmp().CycleCount()));
         }
 
-        // ----- 29h: DRAM refresh occurred — CPU cycles include penalty -----
+        // 29h: DRAM refresh occurred — CPU cycles include penalty
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9747,7 +9667,7 @@ int main() {
                         static_cast<unsigned long long>(cpuAfter - cpuBefore));
         }
 
-        // ----- 29i: Video output receives frame data -----
+        // 29i: Video output receives frame data
         {
             struct TestVideoOutput : IVideoOutput {
                 int frameCount = 0;
@@ -9777,7 +9697,7 @@ int main() {
             std::printf("  [29i] Video output receives frame data passed\n");
         }
 
-        // ----- 29j: Audio output receives samples -----
+        // 29j: Audio output receives samples
         {
             struct TestAudioOutput : IAudioOutput {
                 int submitCount = 0;
@@ -9806,7 +9726,7 @@ int main() {
                         audio.lastSampleCount);
         }
 
-        // ----- 29k: NMI fires when enabled (CPU writes NMITIMEN=$81) -----
+        // 29k: NMI fires when enabled (CPU writes NMITIMEN=$81)
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9819,7 +9739,7 @@ int main() {
             std::printf("  [29k] NMI enabled via NMITIMEN passed\n");
         }
 
-        // ----- 29l: Stub path still works without cartridge -----
+        // 29l: Stub path still works without cartridge
         {
             auto emu = std::make_unique<Emulator>();
             assert(!emu->Initialized());
@@ -9832,7 +9752,7 @@ int main() {
             std::printf("  [29l] Stub path without cartridge passed\n");
         }
 
-        // ----- 29m: Input provider is polled -----
+        // 29m: Input provider is polled
         {
             struct TestInput : IInputProvider {
                 int pollCount = 0;
@@ -9857,7 +9777,7 @@ int main() {
             std::printf("  [29m] Input provider polled passed\n");
         }
 
-        // ----- 29n: CpuIoRegisters wired — MEMSEL changes bus speed -----
+        // 29n: CpuIoRegisters wired — MEMSEL changes bus speed
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
@@ -9869,7 +9789,7 @@ int main() {
             std::printf("  [29n] CpuIoRegisters MEMSEL wiring passed\n");
         }
 
-        // ----- 29o: Timing callbacks fire during frame -----
+        // 29o: Timing callbacks fire during frame
         {
             // Verify that after one frame the Timing elapsed time is
             // approximately one frame's worth of clocks.
@@ -9887,7 +9807,7 @@ int main() {
                         static_cast<unsigned long long>(elapsed));
         }
 
-        // ----- 29p: Second frame also completes -----
+        // 29p: Second frame also completes
         {
             auto emu = std::make_unique<Emulator>();
             auto rom = BuildTestRom();
