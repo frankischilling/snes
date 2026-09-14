@@ -2,6 +2,8 @@
 
 A SNES emulator written in C++.
 
+[Cartridge compatibility and saves](docs/compatibility.md) covers supported board layouts, prototype header detection, battery saves, headless game checks, and remaining gaps.
+
 Build and test from the repository directory with CMake, Ninja and a C++20 compiler:
 
 ```powershell
@@ -18,4 +20,5 @@ Run a game on Windows:
 
 [Audio playback](docs/audio.md) explains buffering, frame pacing and audio regression tests.
 [Rendering and LoROM checks](docs/accuracy-notes.md) covers coordinate handling, ROM mapping and their regression tests.
-[Cartridge and PPU regression checks](docs/hardware-regressions.md) covers DSP-1 addressing, ROM mirrors, counter latching, palette access, OAM and overscan timing.
+[Cartridge, PPU, and DMA regression checks](docs/hardware-regressions.md) covers DSP-1 addressing, ROM mirrors, counter latching, palette access, OAM, overscan timing, and indirect HDMA termination.
+[CPU regression checks](docs/cpu-regressions.md) covers stop and wait states, interrupt entry, and stack boundaries.

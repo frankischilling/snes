@@ -44,6 +44,12 @@ void SnesCpu::Reset() {
 uint32_t SnesCpu::Step() {
     instructionClocks_ = 0;
 
+    // Only reset releases STP. Keep the scheduler running without bus access.
+    if (regs().stp) {
+        idle();
+        return instructionClocks_;
+    }
+
     // Check for pending NMI/IRQ before the instruction
     if (nmiPending_) {
         nmiPending_ = false;
@@ -75,12 +81,6 @@ uint32_t SnesCpu::Step() {
                 irqPending_ = true;
             }
         }
-        return instructionClocks_;
-    }
-
-    // STP: just burn a cycle
-    if (regs().stp) {
-        idle();
         return instructionClocks_;
     }
 

@@ -1247,6 +1247,7 @@ void Processor65816::instructionCallLong() {
     pushN(lo(returnAddr));
     r.pb = ab;
     r.pc = makeWord(al, ah);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // JSR (Absolute,X) — Call Indexed Indirect
@@ -1263,6 +1264,7 @@ void Processor65816::instructionCallIndexedIndirect() {
     lastCycle();
     uint8_t th = read((static_cast<uint32_t>(r.pb) << 16) | static_cast<uint16_t>(addr + 1));
     r.pc = makeWord(tl, th);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // RTI — Return from Interrupt
@@ -1305,6 +1307,7 @@ void Processor65816::instructionReturnLong() {
     lastCycle();
     r.pb = pullN();
     r.pc = static_cast<uint16_t>(makeWord(pcl, pch) + 1);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 //  Instruction implementations — Miscellaneous
@@ -1380,9 +1383,9 @@ void Processor65816::instructionBlockMove16(int adjust) {
 void Processor65816::instructionInterrupt(uint16_t vector) {
     fetch();
     if (!r.e) pushN(r.pb);
-    pushN(hi(r.pc));
-    pushN(lo(r.pc));
-    pushN(r.p);
+    push(hi(r.pc));
+    push(lo(r.pc));
+    push(r.p);
     r.p |= FlagI;  // Set interrupt disable
     r.p &= ~FlagD; // Clear decimal mode
     r.pb = 0x00;
@@ -1395,10 +1398,9 @@ void Processor65816::instructionInterrupt(uint16_t vector) {
 // STP — Stop Processor
 void Processor65816::instructionStop() {
     r.stp = true;
-    while (r.stp) {
-        lastCycle();
-        idle();
-    }
+    // Return to the system scheduler while the CPU remains stopped.
+    idle();
+    idle();
 }
 
 // WAI — Wait for Interrupt
@@ -1531,6 +1533,7 @@ void Processor65816::instructionPushD() {
     pushN(hi(r.d));
     lastCycle();
     pushN(lo(r.d));
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // Pull 8-bit  (PLA/PLX/PLY)
@@ -1563,6 +1566,7 @@ void Processor65816::instructionPullD() {
     uint8_t dh = pullN();
     r.d = makeWord(dl, dh);
     setNZ16(r.d);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // PLB — Pull Data Bank
@@ -1591,6 +1595,7 @@ void Processor65816::instructionPushEffectiveAddress() {
     pushN(ah);
     lastCycle();
     pushN(al);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // PEI — Push Effective Indirect Address
@@ -1602,6 +1607,7 @@ void Processor65816::instructionPushEffectiveIndirectAddress() {
     pushN(ah);
     lastCycle();
     pushN(al);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // PER — Push Effective Relative Address
@@ -1613,20 +1619,22 @@ void Processor65816::instructionPushEffectiveRelativeAddress() {
     pushN(hi(addr));
     lastCycle();
     pushN(lo(addr));
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 //  Interrupt entry
 
 void Processor65816::enterInterrupt(Interrupt type) {
+    r.wai = false;
     // Hardware interrupt entry: dummy read + idle cycle, matching bsnes interrupt()
     read(static_cast<uint32_t>(r.pb) << 16 | r.pc);
     idle();
 
     if (type != Interrupt::Reset) {
         if (!r.e) pushN(r.pb);
-        pushN(hi(r.pc));
-        pushN(lo(r.pc));
-        pushN(r.e ? (r.p & ~0x10) : r.p);  // Clear B flag in emulation mode
+        push(hi(r.pc));
+        push(lo(r.pc));
+        push(r.e ? (r.p & ~0x10) : r.p);  // Clear B flag in emulation mode
     }
 
     setFlag(FlagI, true);

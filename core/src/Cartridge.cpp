@@ -12,7 +12,7 @@ namespace snes::core {
 
 namespace {
 
-constexpr std::array<size_t, 3> kHeaderOffsets{0x7FC0, 0xFFC0, 0x40FFC0};
+constexpr std::array<size_t, 4> kHeaderOffsets{0x7FC0, 0xFFC0, 0x407FC0, 0x40FFC0};
 
 size_t HeaderRomSize(uint8_t shift) {
     if (shift < 8 || shift > 30) {
@@ -128,6 +128,19 @@ bool IsFastRegion(uint32_t cpuAddress) {
 
 } // namespace
 
+const char* MappingName(MappingType mapping) noexcept {
+    switch (mapping) {
+    case MappingType::LoRom: return "LoROM";
+    case MappingType::HiRom: return "HiROM";
+    case MappingType::ExLoRom: return "ExLoROM";
+    case MappingType::ExHiRom: return "ExHiROM";
+    case MappingType::LoRomNoMad1: return "LoROM (NoMAD-1)";
+    case MappingType::LoRom24Mbit: return "LoROM (24 Mbit board)";
+    case MappingType::LoRomLargeSram: return "LoROM (large SRAM board)";
+    default: return "Unknown";
+    }
+}
+
 CartridgeDatabase::CartridgeDatabase() {
     AddOverride(0x00000000, DatabaseOverride{});
 }
@@ -170,6 +183,15 @@ std::optional<Cartridge> Cartridge::FromRomImage(std::span<const uint8_t> romIma
     cart.header_ = std::move(*header);
     cart.romCrc32_ = ComputeCrc32(cart.rom_);
     cart.memselFast_ = false;
+
+    if (cart.header_.mapping == MappingType::LoRom) {
+        const auto& title = cart.header_.title;
+        if (title == "WANDERERS FROM YS") cart.header_.mapping = MappingType::LoRomNoMad1;
+        else if (title == "SOUND NOVEL-TCOOL" || title == "DERBY STALLION 96")
+            cart.header_.mapping = MappingType::LoRom24Mbit;
+        else if (title == "THOROUGHBRED BREEDER3" || title == "RPG-TCOOL 2")
+            cart.header_.mapping = MappingType::LoRomLargeSram;
+    }
 
     if (database != nullptr) {
         if (const auto overrideEntry = database->Find(cart.romCrc32_); overrideEntry.has_value()) {
@@ -300,7 +322,19 @@ std::optional<RomHeader> Cartridge::ParseHeader(std::span<const uint8_t> rom) {
 
         candidate.score = score;
 
-        if (!best.has_value() || candidate.score > best->score) {
+        // Prototype headers may omit the mode byte. The header's physical
+        // position still identifies the layout used by the reset vector.
+        if (candidate.mapping == MappingType::Unknown) {
+            candidate.mapping = base == 0x7fc0 ? MappingType::LoRom :
+                                base == 0xffc0 ? MappingType::HiRom :
+                                base == 0x407fc0 ? MappingType::ExLoRom : MappingType::ExHiRom;
+            candidate.speed = RomSpeed::Slow;
+        }
+        if (base == 0x407fc0 && candidate.mapping == MappingType::LoRom)
+            candidate.mapping = MappingType::ExLoRom;
+
+        if (!best.has_value() || candidate.score > best->score ||
+            (base >= 0x400000 && candidate.score == best->score)) {
             best = candidate;
         }
     }
@@ -382,8 +416,26 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
     const auto addr = static_cast<uint16_t>(cpuAddress & 0xFFFF);
 
     switch (header_.mapping) {
+    case MappingType::ExLoRom: {
+        if (bank == 0x7e || bank == 0x7f || (!(bank & 0x40) && addr < 0x8000))
+            return std::nullopt;
+        const size_t linear = (static_cast<size_t>(bank & 0x7f) << 15) | (addr & 0x7fff);
+        if (bank & 0x80) return MirrorOffset(linear, std::min(rom_.size(), size_t(0x400000)));
+        if (rom_.size() <= 0x400000) return MirrorOffset(linear, rom_.size());
+        return 0x400000 + MirrorOffset(linear, rom_.size() - 0x400000);
+    }
+
+    case MappingType::LoRom24Mbit: {
+        if ((bank & 0x40) || addr < 0x8000) return std::nullopt;
+        const size_t chip = (bank & 0x20) ? 0x100000 : (bank & 0x80) ? 0x200000 : 0;
+        const size_t linear = chip + (static_cast<size_t>(bank & 0x1f) << 15) + (addr & 0x7fff);
+        return MirrorOffset(linear, rom_.size());
+    }
+
+    case MappingType::LoRomNoMad1:
+    case MappingType::LoRomLargeSram:
     case MappingType::LoRom: {
-        // Snes9x map_lorom mirrors each 32KB page into both halves of full-ROM banks.
+        // Mirror each 32 KiB page into both halves of the full-ROM banks.
         const bool fullRomBank = (bank >= 0x40 && bank <= 0x7D) || bank >= 0xC0;
         if (fullRomBank || (addr >= 0x8000 && bank != 0x7E && bank != 0x7F)) {
             const auto linear =
@@ -443,9 +495,19 @@ std::optional<size_t> Cartridge::ResolveSramOffset(uint32_t cpuAddress) const {
     const auto addr = static_cast<uint16_t>(cpuAddress & 0xFFFF);
 
     switch (header_.mapping) {
+    case MappingType::LoRomLargeSram:
+        if (bank >= 0x70 && bank <= 0x73) {
+            const size_t linear = static_cast<size_t>(bank - 0x70) * 0x8000 + addr;
+            return MirrorOffset(linear, sram_.size());
+        }
+        return std::nullopt;
+    case MappingType::ExLoRom:
+    case MappingType::LoRomNoMad1:
+    case MappingType::LoRom24Mbit:
     case MappingType::LoRom: {
-        if (((bank >= 0x70 && bank <= 0x7D) || bank >= 0xF0) && addr <= 0x7FFF) {
-            const auto linear = (static_cast<size_t>(bank & 0x0F) * 0x8000) + addr;
+        if (((bank >= 0x70 && bank <= 0x7D) || bank >= 0xF0) &&
+            (addr <= 0x7FFF || header_.mapping == MappingType::LoRomNoMad1)) {
+            const auto linear = (static_cast<size_t>(bank & 0x0F) * 0x8000) + (addr & 0x7fff);
             return MirrorOffset(linear, sram_.size());
         }
         return std::nullopt;

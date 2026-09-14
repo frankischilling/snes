@@ -76,6 +76,7 @@ public:
     bool LoadCartridgeFromFile(const std::string& path, std::string* error = nullptr);
 
     const Cartridge* LoadedCartridge() const noexcept;
+    void LoadSram(std::span<const uint8_t> data) { if (cartridge_) cartridge_->LoadSram(data); }
 
     FrameStepResult StepFrame(const FrameStepOptions& options = {});
 

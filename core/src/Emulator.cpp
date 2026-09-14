@@ -495,36 +495,11 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     pendingExtraClocks_ = 0;
 
     // Main loop: execute CPU → tick timing → sync SMP → NMI/IRQ
-    int instrThisFrame = 0;
-
-    // Hang detector: use a small hash table for PC frequency
-    static constexpr int kPCHashSize = 64;
-    static uint32_t pcHashKeys[kPCHashSize];
-    static uint32_t pcHashVals[kPCHashSize];
-    memset(pcHashKeys, 0xFF, sizeof(pcHashKeys));
-    memset(pcHashVals, 0, sizeof(pcHashVals));
-    static uint32_t lastTopPC = 0;
-    static int sameTopPCFrames = 0;
-    static bool hangReported = false;
 
     while (timing_.MasterClocksElapsed() - frameStart < frameTarget) {
-        instrThisFrame++;
-
         // 1. Execute one 65816 instruction
         const uint32_t cpuClocks = cpu_->Step();
 
-        // Track PC in hash table
-        {
-            uint32_t curPC = (static_cast<uint32_t>(cpu_->regs().pb) << 16) | cpu_->regs().pc;
-            uint32_t slot = (curPC * 2654435769u) >> (32 - 6); // hash to 0-63
-            if (pcHashKeys[slot] == curPC) {
-                pcHashVals[slot]++;
-            } else if (pcHashKeys[slot] == 0xFFFFFFFF) {
-                pcHashKeys[slot] = curPC;
-                pcHashVals[slot] = 1;
-            }
-            // else: collision — ignore (acceptable for diagnostics)
-        }
 
         // 2. Advance timing by the instruction's master clocks.
         //    This may fire onDramRefresh / onHdmaTransfer / onIrqPoll etc.
@@ -557,69 +532,6 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         }
     }
 
-    // End-of-frame diagnostics
-    // Find the most-hit PC this frame
-    uint32_t topPC = 0;
-    uint32_t topCount = 0;
-    for (int i = 0; i < kPCHashSize; i++) {
-        if (pcHashKeys[i] != 0xFFFFFFFF && pcHashVals[i] > topCount) {
-            topCount = pcHashVals[i];
-            topPC = pcHashKeys[i];
-        }
-    }
-
-    // Per-frame summary every 30 frames (for debugging state transitions)
-    if (frameIndex_ % 30 == 0 && frameIndex_ > 0) {
-        fprintf(stderr, "[FRAME f=%u] instrs=%d  disp=%s bright=%d  topPC=%02X:%04X (x%u)\n",
-                frameIndex_, instrThisFrame,
-                ppu_.DisplayDisable() ? "OFF" : "ON ",
-                ppu_.Brightness(),
-                static_cast<uint8_t>(topPC >> 16), static_cast<uint16_t>(topPC & 0xFFFF),
-                topCount);
-    }
-
-    // Detect hang: if >50% of frame spent at one PC for 3+ consecutive frames
-    if (instrThisFrame > 100 && topCount > (uint32_t)(instrThisFrame / 2)) {
-        if (topPC == lastTopPC) {
-            sameTopPCFrames++;
-        } else {
-            sameTopPCFrames = 1;
-            lastTopPC = topPC;
-        }
-        if (sameTopPCFrames >= 3 && !hangReported) {
-            hangReported = true;
-            uint8_t pb = static_cast<uint8_t>(topPC >> 16);
-            uint16_t pc = static_cast<uint16_t>(topPC & 0xFFFF);
-            uint32_t fullAddr = topPC;
-            uint8_t b0 = bus_.Read(fullAddr);
-            uint8_t b1 = bus_.Read(fullAddr + 1);
-            uint8_t b2 = bus_.Read(fullAddr + 2);
-            uint8_t b3 = bus_.Read(fullAddr + 3);
-            fprintf(stderr, "\n[HANG-DETECT f=%u] CPU stuck at %02X:%04X for %d frames (%u/%d instrs)\n",
-                    frameIndex_, pb, pc, sameTopPCFrames, topCount, instrThisFrame);
-            fprintf(stderr, "  bytes=%02X %02X %02X %02X  A=%04X X=%04X Y=%04X S=%04X D=%04X DB=%02X P=%02X\n",
-                    b0, b1, b2, b3,
-                    cpu_->regs().a, cpu_->regs().x, cpu_->regs().y,
-                    cpu_->regs().s, cpu_->regs().d, cpu_->regs().db, cpu_->regs().p);
-            fprintf(stderr, "  wai=%d stp=%d\n",
-                    cpu_->regs().wai ? 1 : 0, cpu_->regs().stp ? 1 : 0);
-            // Dump context bytes around the PC
-            fprintf(stderr, "  context: ");
-            for (int i = -8; i <= 16; i++) {
-                uint32_t a = (fullAddr + i) & 0xFFFFFF;
-                fprintf(stderr, "%s%02X", (i == 0) ? "[" : " ", bus_.Read(a));
-                if (i == 0) fprintf(stderr, "]");
-            }
-            fprintf(stderr, "\n");
-            fprintf(stderr, "  SMP ports: in=%02X %02X %02X %02X  out=%02X %02X %02X %02X\n",
-                    smp_.ApuInput(0), smp_.ApuInput(1), smp_.ApuInput(2), smp_.ApuInput(3),
-                    smp_.CpuOutput(0), smp_.CpuOutput(1), smp_.CpuOutput(2), smp_.CpuOutput(3));
-            fflush(stderr);
-        }
-    } else {
-        sameTopPCFrames = 0;
-        lastTopPC = 0;
-    }
 
     // End-of-frame processing
 

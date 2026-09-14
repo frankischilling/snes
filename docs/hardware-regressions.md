@@ -1,6 +1,6 @@
-# Cartridge and PPU regression checks
+# Cartridge, PPU, and DMA regression checks
 
-`snes_hardware_regression_tests` covers cartridge address decoding, beam-counter latching, palette access, OAM mirrors, and overscan timing. It uses synthetic ROMs and explicit value checks that remain active in Release builds.
+`snes_hardware_regression_tests` covers cartridge address decoding, beam-counter latching, palette access, OAM mirrors, overscan timing, and indirect HDMA termination. It uses synthetic ROMs and explicit value checks that remain active in Release builds.
 
 ## Cartridge addressing
 
@@ -27,6 +27,10 @@ CGRAM reads and writes have separate low/high byte phases and share a palette ad
 OAM addresses $200-$3FF repeat the 32-byte high table at $200-$21F. Tests read and write every mirror, then cross the address wrap into the low table and check its paired-write behavior.
 
 SETINI overscan writes update the VBlank boundary used by Timing. Normal mode has 224 visible scanlines and enters VBlank at line 225. Overscan has 239 visible scanlines and enters VBlank at line 240. Tests verify $4212, rendering and HDMA callback counts, VBlank and NMI callback positions, the bottom rendered row, and switching back to normal mode.
+
+## Indirect HDMA termination
+
+When the last active indirect HDMA channel reads a zero terminator, it reads one trailing address byte into the high half of DAS and clears the low half. A trailing byte of $56 therefore leaves DAS at $5600. If a later channel is still active, the terminating channel reads both address bytes normally. Tests cover termination during setup and after a transfer, checking DAS, the table pointer, completion state, and cycle counts.
 
 ## Run the checks
 

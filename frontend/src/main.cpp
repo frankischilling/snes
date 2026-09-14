@@ -7,6 +7,7 @@
 #include "SdlVideoOutput.hpp"
 #include "SdlAudioOutput.hpp"
 #include "SdlInputProvider.hpp"
+#include "SaveRamFile.hpp"
 
 #include "snes/core/Emulator.hpp"
 #include "snes/core/Logging.hpp"
@@ -66,11 +67,19 @@ int main(int argc, char* argv[]) {
     }
 
     const auto* cart = emulator->LoadedCartridge();
+    auto savePath = std::filesystem::path(romPath);
+    savePath.replace_extension(".srm");
+    snes::frontend::SaveRamFile saveRam(savePath);
+    try {
+        emulator->LoadSram(saveRam.Load(cart->SramData().size()));
+    } catch (const std::exception& e) {
+        std::cerr << "Failed to load save RAM: " << e.what() << '\n';
+        return EXIT_FAILURE;
+    }
     if (cart) {
         const auto& hdr = cart->Header();
-        bool isHiROM = (hdr.mapping == snes::core::MappingType::HiRom);
         std::cout << "Loaded: " << hdr.title
-                  << " (" << (isHiROM ? "HiROM" : "LoROM") << ")\n";
+                  << " (" << snes::core::MappingName(hdr.mapping) << ")\n";
     }
 
     // 5. Prime audio and enter main loop
@@ -107,8 +116,10 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             emulator->StepFrame();
+            if (emulator->CurrentFrame() % 300 == 0) saveRam.Flush(cart->SramData());
         }
         audio->Pause();
+        saveRam.Flush(cart->SramData());
     } catch (const std::exception& e) {
         std::cerr << "Playback failed: " << e.what() << '\n';
         return EXIT_FAILURE;

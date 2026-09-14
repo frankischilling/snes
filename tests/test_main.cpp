@@ -2592,7 +2592,7 @@ int main() {
             Ppu ppu;
             setupObjFixture(ppu, 0x10, false);  // 8x8 sprite
 
-            // Raw OAM Y is the first output row, as in Snes9x SetupOBJ.
+            // Raw OAM Y is the first output row.
             const uint32_t* rowBefore = renderOneScanline(ppu, 0x0F);
             const uint32_t* rowFirst = renderOneScanline(ppu, 0x10);
 
