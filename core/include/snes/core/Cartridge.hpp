@@ -14,8 +14,14 @@ enum class MappingType {
     Unknown,
     LoRom,
     HiRom,
-    ExHiRom
+    ExHiRom,
+    ExLoRom,
+    LoRomNoMad1,
+    LoRom24Mbit,
+    LoRomLargeSram
 };
+
+const char* MappingName(MappingType mapping) noexcept;
 
 enum class RomSpeed {
     Slow,

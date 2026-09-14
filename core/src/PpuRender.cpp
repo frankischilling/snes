@@ -304,7 +304,7 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
                       static_cast<uint32_t>(bg.tileSize) <<
                       static_cast<uint32_t>(!!(bg.screenSize & 2))) - 1;
 
-    // line.y is the hardware vcounter: output row + 1, as in Snes9x RenderLine.
+    // line.y is the hardware vcounter: output row + 1.
     uint32_t y = line.y;
     if (hires) {
         hscroll <<= 1;
@@ -521,7 +521,7 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
         return (n & 0x2000) ? (n | ~1023) : (n & 1023);
     };
 
-    // Snes9x applies mosaic to the visible row before the Mode 7 vertical flip.
+    // Apply mosaic to the visible row before the Mode 7 vertical flip.
     int y = line.y;
     if (bg.mosaicEnable) y -= line.io.mosaic.size - line.io.mosaic.counter;
     if (line.io.mode7.vflip) y = 255 - y;

@@ -345,8 +345,11 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
     const auto mapping = cart.Header().mapping;
 
     switch (mapping) {
+    case MappingType::ExLoRom:
+    case MappingType::LoRomNoMad1:
+    case MappingType::LoRomLargeSram:
     case MappingType::LoRom:
-        // Snes9x Map_LoROMMap maps both halves of the full-ROM banks.
+        // Both halves of the full-ROM banks select the same 32 KiB page.
         // SRAM below takes precedence in $70-7D/$F0-FF.
         MapRegions({
             {uint8_t(0x00), uint8_t(0x7D), uint16_t(0x8000), uint16_t(0xFFFF)},
@@ -361,6 +364,13 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
             {uint8_t(0x70), uint8_t(0x7D), uint16_t(0x0000), uint16_t(0x7FFF)},
             {uint8_t(0xF0), uint8_t(0xFF), uint16_t(0x0000), uint16_t(0x7FFF)},
         }, cartSlot);
+        break;
+
+    case MappingType::LoRom24Mbit:
+        MapRange(0x00, 0x3f, 0x8000, 0xffff, cartSlot);
+        MapRange(0x80, 0xbf, 0x8000, 0xffff, cartSlot);
+        MapRange(0x70, 0x7d, 0x0000, 0x7fff, cartSlot);
+        MapRange(0xf0, 0xff, 0x0000, 0x7fff, cartSlot);
         break;
 
     case MappingType::HiRom:

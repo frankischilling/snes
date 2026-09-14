@@ -206,14 +206,11 @@ void DmaController::EnableHdma(uint8_t channelMask) {
 }
 
 // HDMA reset — called at the start of each frame (V=0)
-static int g_hdmaDiagFrame = 0;
-
 void DmaController::HdmaReset() {
     for (int i = 0; i < 8; ++i) {
         channels_[i].hdmaCompleted  = false;
         channels_[i].hdmaDoTransfer = false;
     }
-    g_hdmaDiagFrame++;
 }
 
 // A-bus address validation
@@ -442,15 +439,15 @@ uint32_t DmaController::HdmaReload(DmaChannel& ch, int channelIdx) {
             data = ReadA(tableAddr);
             cycles += 8;
 
-            // bsnes stores as: indirectAddress = data << 8 | 0x00
-            // Then overwrites with second read.  This means low byte = data,
-            // high byte initially 0x00.
+            // A full reload uses this byte as the low half of the address.
             uint16_t indLo = data;
 
             // Early exit: if completed and no later channel is active, skip
             // the second indirect address read
             if (ch.hdmaCompleted && HdmaFinished(channelIdx)) {
-                ch.setIndirectAddress(indLo);  // only low byte valid
+                // The final channel performs only one address read. That
+                // byte occupies the high half; the terminator supplies zero.
+                ch.setIndirectAddress(static_cast<uint16_t>(indLo << 8));
                 return cycles;
             }
 
@@ -575,32 +572,13 @@ uint32_t DmaController::HdmaSetup() {
 uint32_t DmaController::HdmaRun() {
     if (!bus_ || !AnyHdmaActive()) return 0;
 
-    static int hdmaDiagLine = 0;
-    hdmaDiagLine++;
-
     uint32_t totalCycles = 8; // global overhead
 
     // Pass 1: transfer data for each active channel
     for (int i = 0; i < 8; ++i) {
         auto& ch = channels_[i];
-        bool wasActive = (ch.hdmaEnable && !ch.hdmaCompleted);
-        bool willTransfer = wasActive && ch.hdmaDoTransfer;
-        uint32_t cyclesBefore = totalCycles;
         totalCycles += HdmaTransfer(ch);
-        if (g_hdmaDiagFrame >= 499 && g_hdmaDiagFrame <= 501 && hdmaDiagLine <= 35) {
-            fprintf(stderr, "[HDMA-XFER f=%d ln=%d ch=%d] en=%d comp=%d doXfer=%d "
-                    "mode=%d target=$%02X bytes=%u lc=0x%02X src=$%02X:%04X\n",
-                    g_hdmaDiagFrame, hdmaDiagLine, i,
-                    ch.hdmaEnable, ch.hdmaCompleted, willTransfer,
-                    ch.transferMode, ch.targetAddress,
-                    (totalCycles - cyclesBefore) / 8,
-                    ch.lineCounter,
-                    ch.sourceBank, ch.hdmaAddress);
-        }
     }
-
-    // Reset line counter per frame
-    if (hdmaDiagLine >= 224) hdmaDiagLine = 0;
 
     // Pass 2: advance each active channel to next scanline
     for (int i = 0; i < 8; ++i) {

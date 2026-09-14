@@ -34,7 +34,7 @@ void Render(Ppu& ppu) {
 }
 
 void BackgroundRows() {
-    // Snes9x gfx.cpp RenderLine: source Y = output row + BG VOFS + 1.
+    // Source Y = output row + BG VOFS + 1.
     for (uint8_t mode = 0; mode <= 4; ++mode) {
         for (uint16_t scroll : {0, 3, 255, 1023}) {
             auto ppu = std::make_unique<Ppu>();
@@ -101,7 +101,7 @@ void SpriteFloorAlignment() {
 }
 
 void Mode7Coordinates() {
-    // Snes9x tileimpl.h: signed 13-bit offsets; Y is Line+1, optionally flipped.
+    // Offsets are signed 13-bit values; Y is Line+1, optionally flipped.
     for (uint8_t flips : {0, 1, 2, 3}) {
         for (uint16_t scroll : {0x0000, 0x1fff, 0xffff}) {
             auto ppu = std::make_unique<Ppu>();
