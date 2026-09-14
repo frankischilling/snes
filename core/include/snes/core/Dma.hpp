@@ -22,6 +22,8 @@
 
 namespace snes::core {
 
+class Cartridge;
+
 class MemoryBus;  // forward — needed for DMA transfer engine
 
 // DmaChannel — per-channel register state
@@ -143,6 +145,11 @@ public:
     // The MemoryBus pointer is non-owning and must outlive this object.
     void SetBus(MemoryBus* bus) noexcept { bus_ = bus; }
     MemoryBus* Bus() const noexcept { return bus_; }
+    void SetCartridge(Cartridge* cartridge) noexcept { cartridge_ = cartridge; }
+    // Advance the system after each GP-DMA byte and overhead interval.
+    // RunDma still returns its own clocks; callers using this callback must
+    // not advance those clocks a second time.
+    void SetClockCallback(std::function<void(uint32_t)> callback) { onClock_ = std::move(callback); }
 
     // Register read/write — $4300-$437F
     //
@@ -225,6 +232,8 @@ public:
 private:
     DmaChannel channels_[8];
     MemoryBus* bus_ = nullptr;
+    Cartridge* cartridge_ = nullptr;
+    std::function<void(uint32_t)> onClock_;
 
     // Internal transfer helpers (shared by GP-DMA and HDMA)
 
@@ -242,10 +251,10 @@ private:
 
     /// Execute one transfer unit (A→B or B→A) for a channel.
     /// index selects the B-bus address offset based on transfer mode.
-    void Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index);
+    void Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index, const uint8_t* source = nullptr);
 
     /// Execute GP-DMA for a single channel. Returns cycles consumed.
-    uint32_t RunChannelDma(DmaChannel& ch);
+    uint32_t RunChannelDma(DmaChannel& ch, unsigned channel);
 
     // HDMA internal helpers
 

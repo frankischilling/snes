@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -25,7 +26,9 @@ enum class MappingType {
     LoRomLargeSram,
     SufamiTurbo,
     BroadcastLoRom,
-    BroadcastHiRom
+    BroadcastHiRom,
+    Sdd1,
+    DecompressedSdd1
 };
 
 const char* MappingName(MappingType mapping) noexcept;
@@ -107,6 +110,10 @@ public:
     uint8_t Read(uint32_t cpuAddress, uint8_t openBus = 0xff) const;
     void Write(uint32_t cpuAddress, uint8_t value);
 
+    std::vector<uint8_t> BeginDma(unsigned channel, uint32_t address,
+                                  uint16_t size, bool fixed, bool fromBBus);
+    void EndDma(unsigned channel);
+
     uint32_t AccessCycles(uint32_t cpuAddress) const noexcept;
 
     std::span<const uint8_t> RomData() const noexcept;
@@ -150,6 +157,7 @@ private:
     bool flashExtendedStatus_ = false;
     mutable bool flashStatus_ = false;
     uint8_t flashCommand_ = 0;
+    std::array<uint8_t, 8> sdd1Registers_{0, 0, 0, 0, 0, 1, 2, 3};
 };
 
 } // namespace snes::core

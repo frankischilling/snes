@@ -63,6 +63,9 @@ void Ppu::Reset() {
     cpuPio_ = 0xFF;
     fieldId_ = false;
     frameOverscan_ = false;
+    frameWidth_ = 256;
+    frameHeight_ = 224;
+    frameInterlace_ = false;
     isPal_ = false;
 
     UpdateVideoMode();
@@ -97,11 +100,11 @@ void Ppu::ScanlineBegin(uint16_t line) {
         auto& cache = lines_[line];
         cache.y = line;
         cache.fieldID = fieldId_;
+        cache.io = io_;
 
         if (io_.displayDisable || line >= VDisp()) {
             cache.io.displayDisable = true;
         } else {
-            cache.io = io_;
             std::memcpy(cache.cgram, cgram_.data(), sizeof(cache.cgram));
         }
 

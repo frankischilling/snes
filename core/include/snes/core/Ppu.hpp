@@ -65,6 +65,8 @@ public:
     bool Interlace()    const noexcept { return io_.interlace; }
     bool Overscan()     const noexcept { return io_.overscan; }
     bool FrameOverscan() const noexcept { return frameOverscan_; }
+    uint16_t FrameWidth() const noexcept { return frameWidth_; }
+    uint16_t FrameHeight() const noexcept { return frameHeight_; }
     uint16_t VDisp()    const noexcept { return io_.overscan ? 240 : 225; }
     bool DisplayDisable() const noexcept { return io_.displayDisable; }
     uint8_t Brightness() const noexcept { return io_.displayBrightness; }
@@ -499,6 +501,9 @@ private:
 
     // Overscan state latched at frame start (matches render-time frame state)
     bool frameOverscan_ = false;
+    uint16_t frameWidth_ = 256;
+    uint16_t frameHeight_ = 224;
+    bool frameInterlace_ = false;
 
     // NTSC / PAL flag (affects STAT78 readback)
     bool isPal_ = false;

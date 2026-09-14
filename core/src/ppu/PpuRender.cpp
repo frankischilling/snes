@@ -109,6 +109,21 @@ void Ppu::ParseOam() {
 void Ppu::RenderFrame() {
     if (lineCount_ == 0) return;
 
+    bool hires = false, interlace = false, overscan = false;
+    for (int i = 0; i < lineCount_; ++i) {
+        const auto& registers = lines_[lineStart_ + i].io;
+        hires |= registers.pseudoHires || registers.bgMode == 5 || registers.bgMode == 6;
+        interlace |= registers.interlace;
+        overscan |= registers.overscan;
+    }
+    const uint16_t width = hires ? 512 : 256;
+    const uint16_t height = uint16_t((overscan ? 239 : 224) * (interlace ? 2 : 1));
+    if (width != frameWidth_ || height != frameHeight_ || interlace != frameInterlace_)
+        std::fill_n(output_.get(), OutputWidth * OutputHeight, 0xff000000u);
+    frameWidth_ = width;
+    frameHeight_ = height;
+    frameInterlace_ = interlace;
+
     // Parse OAM once per frame
     ParseOam();
 
@@ -149,12 +164,13 @@ void Ppu::RenderLine(Line& line) {
 
     // Export visible rows directly: visible vcounter 1 maps to output row 0.
     uint16_t outputY = static_cast<uint16_t>(y - 1);
+    if (frameInterlace_) outputY = uint16_t(outputY * 2 + unsigned(line.fieldID));
 
     auto* outRow = output_.get() + static_cast<size_t>(outputY) * OutputWidth;
 
     // Display disabled → black
     if (line.io.displayDisable) {
-        std::memset(outRow, 0, 256 * sizeof(uint32_t));
+        std::fill_n(outRow, frameWidth_, 0u);
         return;
     }
 
@@ -180,8 +196,12 @@ void Ppu::RenderLine(Line& line) {
     // Step 4: Final compositing with brightness
     auto* luma = lightTable_[line.io.displayBrightness];
 
-    for (int x = 0; x < 256; x++) {
-        uint16_t color555 = CompositePixel(line, x, line.above[x], line.below[x]);
+    const bool hires = line.io.pseudoHires || line.io.bgMode == 5 || line.io.bgMode == 6;
+    for (int outputX = 0; outputX < frameWidth_; ++outputX) {
+        const int x = frameWidth_ == 512 ? outputX / 2 : outputX;
+        const bool sub = hires && !(outputX & 1);
+        const uint16_t color555 = sub ? CompositePixel(line, x, line.below[x], line.above[x]) :
+            CompositePixel(line, x, line.above[x], line.below[x]);
         uint16_t dimmed = luma[color555];
 
         // Convert BGR555 → RGBA8888
@@ -193,7 +213,7 @@ void Ppu::RenderLine(Line& line) {
         uint32_t r8 = (r5 << 3) | (r5 >> 2);
         uint32_t g8 = (g5 << 3) | (g5 >> 2);
         uint32_t b8 = (b5 << 3) | (b5 >> 2);
-        outRow[x] = (0xFFu << 24) | (b8 << 16) | (g8 << 8) | r8;
+        outRow[outputX] = (0xFFu << 24) | (b8 << 16) | (g8 << 8) | r8;
     }
 }
 

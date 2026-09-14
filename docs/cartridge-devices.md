@@ -60,4 +60,6 @@ The loader rejects erased headers and headers without a cartridge-space reset ve
 
 Local 1,800-frame checks produced visible output and non-silent audio for Super Mario World and the Contra prototype. The final Contra frame showed gameplay. These checks do not prove complete gameplay, correct sound, or compatibility with commercial games that use the new devices.
 
-[Controllers and cartridge slots](controllers-and-slots.md) describes mouse, multitap, BS slot boards, and combined Sufami Turbo support. SA-1, Super FX, DSP-3/4, S-DD1, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states, rewind, Super Scope, Justifiers, and MACS rifle also remain unfinished. Register and mapper coverage here is not full system compatibility.
+[Controllers and cartridge slots](controllers-and-slots.md) describes mouse, multitap, BS slot boards, and combined Sufami Turbo support. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) covers decompression, bank switching, expanded ROM layouts, and video changes.
+
+SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states, rewind, Super Scope, Justifiers, and MACS rifle also remain unfinished. Register and mapper coverage here is not full system compatibility.

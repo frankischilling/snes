@@ -126,6 +126,7 @@ private:
     /// Wire all subsystem callbacks and map the bus.
     /// Called from LoadCartridge() once the cartridge is ready.
     void InitSubsystems();
+    void AdvanceClocks(uint32_t clocks);
 
     void EmitTrace(const TraceEvent& event) const;
 
