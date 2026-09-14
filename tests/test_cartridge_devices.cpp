@@ -346,11 +346,132 @@ void Regions() {
               "APU synchronization uses the region clock");
     }
 }
+
+void CombinedSufami() {
+    auto bios = Rom(0x40000);
+    const std::string_view signature = "BANDAI SFC-ADX";
+    const std::string_view backup = "SFC-ADX BACKUP";
+    std::copy(signature.begin(), signature.end(), bios.begin());
+    std::copy(backup.begin(), backup.end(), bios.begin() + 0x10);
+    std::vector<uint8_t> combined(0x300000, 0xff);
+    std::copy(bios.begin(), bios.end(), combined.begin());
+    for (const auto offset : {0x100000u, 0x200000u}) {
+        std::fill_n(combined.begin() + offset, 0x100000, offset == 0x100000 ? 0x31 : 0x72);
+        std::copy(signature.begin(), signature.end(), combined.begin() + offset);
+    }
+    auto emu = Load(combined);
+    Check(emu->LoadedCartridge()->Header().mapping == MappingType::SufamiTurbo, "Combined image selects Sufami mapping");
+    auto& bus = emu->GetBus();
+    Check(bus.Read(0x208100) == 0x31 && bus.Read(0x408100) == 0x72, "Combined image maps both game slots");
+    bus.Write(0x608010, 0x19); bus.Write(0x708010, 0x83);
+    const auto save = emu->LoadedCartridge()->SramData();
+    const std::vector<uint8_t> saved(save.begin(), save.end());
+    Check(saved.size() == 0x8000 && saved[0x10] == 0x19 && saved[0x4010] == 0x83,
+          "Combined saves contain two independent SRAM regions");
+    combined.insert(combined.begin(), 512, 0);
+    RomNormalizationInfo info;
+    auto cart = Cartridge::FromRomImage(combined, &info, nullptr, nullptr);
+    Check(cart && info.hadCopierHeader && !info.hadInterleave, "Combined copier header normalization");
+    Check(emu->LoadCartridge(combined), "Reload combined cartridge");
+    emu->LoadSram(saved);
+    Check(bus.Read(0xe08010) == 0x19 && bus.Read(0xf08010) == 0x83, "Combined save round trip");
+    combined.erase(combined.begin(), combined.begin() + 512);
+    std::fill(combined.begin() + 0x100000, combined.begin() + 0x200000, 0xff);
+    Check(emu->LoadCartridge(combined), "Combined image permits an erased slot");
+    bus.Write(0x7e0000, 0x53);
+    Check(bus.Read(0x208100) == 0x53 && bus.Read(0x608100) == 0x53, "Empty combined slot is open bus");
+    combined.resize(0x280000);
+    Check(!emu->LoadCartridge(combined), "Reject truncated combined slot");
+    Check(bus.Read(0x408100) == 0x72, "Failed combined load preserves cartridge");
+    Check(emu->LoadCartridge(bios), "Standalone base image loads");
+    bus.Write(0x7e0000, 0x91);
+    Check(bus.Read(0x208000) == 0x91, "Standalone base image has no game ROM in slot A");
+}
+
+void BroadcastBoards() {
+    for (const bool hi : {false, true}) {
+        auto base = Rom(0x200000, hi ? 0x21 : 0x20);
+        const unsigned header = hi ? 0xffc0 : 0x7fc0;
+        base[header - 14] = 'Z'; base[header - 11] = 'J'; base[header + 0x1a] = 0x33;
+        base[header + 0x18] = 3;
+        base[0x8123] = 0x36;
+        std::vector<uint8_t> pack(0x100000, 0xff);
+        pack[0x8123] = 0x53;
+        pack[0x18123] = 0x72;
+        auto emu = std::make_unique<Emulator>();
+        std::string error;
+        Check(emu->LoadBroadcastCartridge(base, pack, &error), "BS base and memory pack load");
+        auto& bus = emu->GetBus();
+        Check(emu->LoadedCartridge()->Header().mapping == (hi ? MappingType::BroadcastHiRom : MappingType::BroadcastLoRom),
+              "BS board selects the correct mapper");
+        Check(bus.Read(hi ? 0x008123 : 0x018123) == 0x36, "BS base ROM read");
+        const unsigned port = hi ? 0xe08123 : 0xc18123;
+        Check(bus.Read(port) == 0x53, "BS memory pack ROM read");
+        Check(bus.Read(hi ? 0xf08123 : 0xe18123) == 0x53, "BS memory pack bank mirror");
+        const unsigned ram = hi ? 0x206123 : 0x700123;
+        bus.Write(ram, 0xa9);
+        Check(bus.Read(ram) == 0xa9, "BS base SRAM remains writable");
+        bus.Write(0x7e8123, 0x94);
+        Check(bus.Read(0x7e8123) == 0x94, "BS mapping preserves WRAM");
+        if (hi) {
+            for (unsigned address : {0x208123u, 0x608123u, 0xa08123u})
+                Check(bus.Read(address) == 0x53, "HiROM pack has ROM-only aliases");
+            bus.Write(0x208123, 0x40); bus.Write(0x208123, 0);
+            Check(bus.Read(port) == 0x53, "HiROM ROM-only aliases ignore flash commands");
+        } else {
+            bus.Write(0x7e0000, 0x62);
+            Check(bus.Read(0x408000) == 0x62, "BS LoROM full-bank upper half is open bus");
+        }
+        bus.Write(port, 0x40); bus.Write(port, 0x0f);
+        Check(bus.Read(port) == 0x80 && bus.Read(port) == 3, "Flash byte programming and one-shot status");
+        bus.Write(port, 0x10); bus.Write(port, 0xff);
+        bus.Read(port);
+        Check(bus.Read(port) == 3, "Flash programming cannot set cleared bits");
+        bus.Write(port, 0x71);
+        const unsigned regBank = hi ? 0xe00000 : 0xc00000;
+        Check(bus.Read(regBank + 2) == 0xc0 && bus.Read(regBank + 0x8004) == 0x82, "Flash page and global status");
+        bus.Write(port, 0x75);
+        Check(bus.Read(regBank + 0xff00) == 'M' && bus.Read(regBank + 0xff02) == 'P' &&
+              bus.Read(regBank + 0xff06) == 0x2a, "Flash vendor identity reports one MiB");
+        bus.Write(port, 0xff);
+        bus.Write(port, 0x20); bus.Write(port, 0xd0);
+        Check(bus.Read(port) == 0xff, "Flash block erase restores ones");
+        Check(bus.Read(hi ? 0xe18123 : 0xc38123) == 0x72, "Block erase preserves adjacent block");
+        bus.Write(port, 0x40); bus.Write(port, 0x64); bus.Read(port);
+        const auto data = emu->LoadedCartridge()->MemoryPackData();
+        const std::vector<uint8_t> saved(data.begin(), data.end());
+        Check(!emu->LoadMemoryPack(std::span(saved).first(50)), "Reject short memory-pack save");
+        Check(bus.Read(port) == 0x64, "Invalid save leaves memory pack intact");
+        Check(emu->LoadBroadcastCartridge(base, {}, &error), "Blank memory pack loads");
+        Check(emu->LoadMemoryPack(saved) && bus.Read(port) == 0x64, "Memory pack save round trip");
+        base[header + 0x1a] = 0;
+        Check(!emu->LoadBroadcastCartridge(base, pack, &error), "Reject a base without slot identification");
+        Check(bus.Read(port) == 0x64, "Rejected base leaves the loaded pack intact");
+        base[header + 0x1a] = 0x33;
+        Check(!emu->LoadBroadcastCartridge(base, std::span(pack).first(0x80000), &error), "Reject unsupported pack size");
+        pack[0xff00] = 'M'; pack[0xff02] = 'P'; pack[0xff06] = 0x70;
+        Check(emu->LoadBroadcastCartridge(base, pack, &error), "Read-only mask ROM pack loads");
+        bus.Write(port, 0x40); bus.Write(port, 0);
+        Check(bus.Read(port) == 0x53 && emu->LoadedCartridge()->MemoryPackData().empty(),
+              "Mask ROM pack ignores writes and has no flash save");
+    }
+    auto base = Rom(0x300000);
+    const std::string_view title = "SOUND NOVEL-TCOOL";
+    std::fill_n(base.begin() + 0x7fc0, 21, ' ');
+    std::copy(title.begin(), title.end(), base.begin() + 0x7fc0);
+    base[0x7fb2] = 'Z'; base[0x7fb5] = 'J'; base[0x7fda] = 0x33;
+    base[0x123] = 0x11; base[0x100123] = 0x22; base[0x200123] = 0x33;
+    auto cart = Cartridge::FromBroadcastCartridge(base, {});
+    Check(cart && cart->Read(0x008123) == 0x11 && cart->Read(0x208123) == 0x22 &&
+          cart->Read(0x808123) == 0x33 && cart->Read(0xa08123) == 0x22,
+          "BS 24-Mbit board selects each base ROM chip");
+}
 }
 
 int main() {
     try {
         DetectionAndReload(); LoaderAndRam(); BitmapProcessor(); ObjectController(); Sufami(); Clock(); Regions();
+        CombinedSufami(); BroadcastBoards();
         std::printf("%u cartridge device checks passed\n", checks);
         return 0;
     } catch (const std::exception& error) {

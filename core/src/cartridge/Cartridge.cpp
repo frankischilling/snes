@@ -173,6 +173,8 @@ const char* MappingName(MappingType mapping) noexcept {
     case MappingType::LoRom24Mbit: return "LoROM (24 Mbit board)";
     case MappingType::LoRomLargeSram: return "LoROM (large SRAM board)";
     case MappingType::SufamiTurbo: return "Sufami Turbo";
+    case MappingType::BroadcastLoRom: return "BS cartridge (LoROM)";
+    case MappingType::BroadcastHiRom: return "BS cartridge (HiROM)";
     default: return "Unknown";
     }
 }
@@ -223,6 +225,29 @@ std::optional<Cartridge> Cartridge::FromRomImage(std::span<const uint8_t> romIma
     bool removedHeader = false;
     auto normalized = RemoveCopierHeader(romImage, &removedHeader);
 
+    // Combined images reserve one MiB for the base and one MiB per slot.
+    if (HasSignature(normalized, 0, "BANDAI SFC-ADX") &&
+        HasSignature(normalized, 0x10, "SFC-ADX BACKUP") && normalized.size() > 0x40000) {
+        if (normalized.size() != 0x200000 && normalized.size() != 0x300000) {
+            if (error) *error = "Combined Sufami Turbo image must be 2 or 3 MiB";
+            return std::nullopt;
+        }
+        const auto image = std::span<const uint8_t>(normalized);
+        const auto slot = [&](size_t offset) -> std::span<const uint8_t> {
+            if (offset >= image.size()) return {};
+            const auto bytes = image.subspan(offset, 0x100000);
+            if (std::all_of(bytes.begin(), bytes.end(), [](uint8_t value) { return value == 0xff; }) ||
+                std::all_of(bytes.begin(), bytes.end(), [](uint8_t value) { return value == 0; })) return {};
+            return bytes;
+        };
+        auto combined = FromSufamiTurbo(image.first(0x40000), slot(0x100000), slot(0x200000), error);
+        if (combined) {
+            combined->romCrc32_ = ComputeCrc32(normalized);
+            if (normalization) *normalization = {removedHeader, false};
+        }
+        return combined;
+    }
+
     bool deinterleaved = false;
     if (LooksLikeInterleavedHiRom(normalized)) {
         normalized = DeinterleaveHiRom(normalized);
@@ -242,6 +267,12 @@ std::optional<Cartridge> Cartridge::FromRomImage(std::span<const uint8_t> romIma
     cart.header_ = std::move(*header);
     cart.romCrc32_ = ComputeCrc32(cart.rom_);
     cart.memselFast_ = false;
+
+    if (cart.rom_.size() == 0x40000 && HasSignature(cart.rom_, 0, "BANDAI SFC-ADX") &&
+        HasSignature(cart.rom_, 0x10, "SFC-ADX BACKUP")) {
+        cart.header_.mapping = MappingType::SufamiTurbo;
+        cart.header_.chip = EnhancementChip::None;
+    }
 
     if (cart.header_.mapping == MappingType::LoRom) {
         const auto& title = cart.header_.title;
@@ -330,6 +361,8 @@ bool Cartridge::MemselFast() const noexcept {
 }
 
 uint8_t Cartridge::Read(uint32_t cpuAddress, uint8_t openBus) const {
+    if (const auto offset = ResolveMemoryPackOffset(cpuAddress))
+        return ReadMemoryPack(cpuAddress, *offset);
     if (const auto sramOffset = ResolveSramOffset(cpuAddress); sramOffset.has_value() && !sram_.empty()) {
         return sram_[*sramOffset];
     }
@@ -342,6 +375,10 @@ uint8_t Cartridge::Read(uint32_t cpuAddress, uint8_t openBus) const {
 }
 
 void Cartridge::Write(uint32_t cpuAddress, uint8_t value) {
+    if (const auto offset = ResolveMemoryPackOffset(cpuAddress)) {
+        if (SelectsFlashIo(cpuAddress)) WriteMemoryPack(cpuAddress, *offset, value);
+        return;
+    }
     if (const auto sramOffset = ResolveSramOffset(cpuAddress); sramOffset.has_value() && !sram_.empty()) {
         sram_[*sramOffset] = value;
     }
@@ -527,6 +564,20 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
     if (SelectsLoRomSram(cpuAddress)) return std::nullopt;
 
     switch (header_.mapping) {
+    case MappingType::BroadcastLoRom: {
+        if (broadcast24Mbit_) {
+            if ((bank & 0x40) || addr < 0x8000) return std::nullopt;
+            const size_t chip = (bank & 0x20) ? 0x100000 : (bank & 0x80) ? 0x200000 : 0;
+            return MirrorOffset(chip + (size_t(bank & 0x1f) << 15) + (addr & 0x7fff), rom_.size());
+        }
+        if (bank == 0x7e || bank == 0x7f || ((bank & 0x40) ? addr >= 0x8000 : addr < 0x8000))
+            return std::nullopt;
+        return MirrorOffset((size_t(bank & 0x7f) << 15) | (addr & 0x7fff), rom_.size());
+    }
+    case MappingType::BroadcastHiRom:
+        if (bank == 0x7e || bank == 0x7f || (!(bank & 0x40) && addr < 0x8000) || (bank & 0x20))
+            return std::nullopt;
+        return MirrorOffset((size_t(bank & 0x1f) << 16) | addr, rom_.size());
     case MappingType::SufamiTurbo: {
         if (addr < 0x8000 || (bank & 0x7f) >= 0x60) return std::nullopt;
         const unsigned window = (bank & 0x7f) / 0x20;
@@ -609,6 +660,7 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
 bool Cartridge::SelectsLoRomSram(uint32_t cpuAddress) const {
     switch (header_.mapping) {
     case MappingType::LoRom: case MappingType::ExLoRom:
+    case MappingType::BroadcastLoRom:
     case MappingType::LoRomNoMad1: case MappingType::LoRom24Mbit: break;
     default: return false;
     }
@@ -644,6 +696,7 @@ std::optional<size_t> Cartridge::ResolveSramOffset(uint32_t cpuAddress) const {
     case MappingType::ExLoRom:
     case MappingType::LoRomNoMad1:
     case MappingType::LoRom24Mbit:
+    case MappingType::BroadcastLoRom:
     case MappingType::LoRom: {
         if (SelectsLoRomSram(cpuAddress)) {
             const auto linear = (static_cast<size_t>(bank & 0x0F) * 0x8000) + (addr & 0x7fff);
@@ -653,6 +706,7 @@ std::optional<size_t> Cartridge::ResolveSramOffset(uint32_t cpuAddress) const {
     }
 
     case MappingType::HiRom:
+    case MappingType::BroadcastHiRom:
     case MappingType::ExHiRom: {
         if (((bank >= 0x20 && bank <= 0x3F) || (bank >= 0xA0 && bank <= 0xBF)) &&
             addr >= 0x6000 && addr <= 0x7FFF) {

@@ -36,6 +36,15 @@ add_executable(snes_cartridge_device_tests test_cartridge_devices.cpp)
 target_link_libraries(snes_cartridge_device_tests PRIVATE snes_core)
 add_test(NAME snes_cartridge_device_tests COMMAND snes_cartridge_device_tests)
 
+add_executable(snes_controller_tests test_controller_ports.cpp)
+target_link_libraries(snes_controller_tests PRIVATE snes_core)
+add_test(NAME snes_controller_tests COMMAND snes_controller_tests)
+
+add_executable(snes_sdl_input_tests test_sdl_input.cpp ../frontend/src/SdlInputProvider.cpp)
+target_include_directories(snes_sdl_input_tests PRIVATE ../frontend/src)
+target_link_libraries(snes_sdl_input_tests PRIVATE snes_core SDL3::SDL3)
+add_test(NAME snes_sdl_input_tests COMMAND snes_sdl_input_tests)
+
 add_executable(snes_cpu_regression_tests test_cpu_regressions.cpp)
 target_link_libraries(snes_cpu_regression_tests PRIVATE snes_core)
 add_test(NAME snes_cpu_regression_tests COMMAND snes_cpu_regression_tests)

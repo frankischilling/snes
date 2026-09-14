@@ -85,6 +85,11 @@ public:
                         std::span<const uint8_t> slotB, std::string* error = nullptr);
     bool LoadSufamiTurboFromFiles(const std::string& bios, const std::string& slotA,
                                  const std::string& slotB, std::string* error = nullptr);
+    bool LoadBroadcastCartridge(std::span<const uint8_t> base, std::span<const uint8_t> pack,
+                                std::string* error = nullptr);
+    bool LoadBroadcastCartridgeFromFiles(const std::string& base, const std::string& pack,
+                                         std::string* error = nullptr);
+    bool LoadMemoryPack(std::span<const uint8_t> data) { return cartridge_ && cartridge_->LoadMemoryPack(data); }
 
     const Cartridge* LoadedCartridge() const noexcept;
     void LoadSram(std::span<const uint8_t> data) { if (cartridge_) cartridge_->LoadSram(data); }
@@ -161,18 +166,6 @@ private:
     // Set inside Timing callbacks; drained after each CPU Step().
     uint32_t pendingExtraClocks_ = 0;
 
-    // Serial joypad state (manual $4016/$4017 reads)
-    // Mirrors bsnes's Gamepad struct: latch flag, shift counter, latched bits
-    struct SerialJoypad {
-        bool     latched  = false;   ///< Current latch line state
-        uint32_t counter  = 0;       ///< Bit position (0-15, then 16+ = return 1)
-        // Latched button states (snapshotted on latch 1→0 transition)
-        bool b = false, y = false, select = false, start = false;
-        bool up = false, down = false, left = false, right = false;
-        bool a = false, x = false, l = false, r = false;
-    };
-    SerialJoypad serialPad_[2];      ///< Port 0 and Port 1
-    bool autoJoypadLatch_ = false;   ///< Auto-joypad latch signal (ORed with CPU latch)
 };
 
 } // namespace snes::core

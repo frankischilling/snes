@@ -36,11 +36,10 @@ void AutoJoypad::Reset() {
     autoJoypadPoll_ = false;
     counter_    = 33;
     div256_     = false;
-    port1Pad_   = 0;
-    port2Pad_   = 0;
+    ports_.Reset();
+    manualLatch_ = autoLatch_ = false;
     port1Data_  = 0;
     port2Data_  = 0;
-    shiftPos_   = 0;
     joy1_ = joy2_ = joy3_ = joy4_ = 0;
 }
 
@@ -49,6 +48,8 @@ void AutoJoypad::Reset() {
 void AutoJoypad::FrameBegin() {
     // bsnes timing.cpp scanline(): at vcounter()==0, autoJoypadCounter = 33
     counter_ = 33;
+    autoLatch_ = false;
+    ports_.SetLatch(manualLatch_);
 }
 
 // SetAutoJoypadPoll — $4200 NMITIMEN bit 0
@@ -97,26 +98,20 @@ void AutoJoypad::Tick128(uint16_t h, uint16_t v, uint16_t vdisp) {
         counter_++;
     }
 
-    // Counter 0: Latch controllers
-    // bsnes: latch signal is always asserted (even if disabled), but
-    // joy registers are only cleared when auto-joypad is enabled.
+    // Counter 0: latch controllers and clear results when polling is enabled.
     if (counter_ == 0) {
         if (autoJoypadPoll_) {
-            // Capture input and convert to SNES serial format
-            if (onInput_) {
-                port1Pad_ = InputStateToSnesFormat(onInput_(0));
-                port2Pad_ = InputStateToSnesFormat(onInput_(1));
-            } else {
-                port1Pad_ = 0;
-                port2Pad_ = 0;
-            }
+            autoLatch_ = true;
+            ports_.SetLatch(true);
             // Clear shift registers at start of polling
             joy1_ = joy2_ = joy3_ = joy4_ = 0;
-            shiftPos_ = 0;
         }
     }
 
-    // Counter 1: Release latch (no-op in simplified serial model)
+    if (counter_ == 1) {
+        autoLatch_ = false;
+        ports_.SetLatch(manualLatch_);
+    }
 
     // Abort if disabled and not at counter 1
     // bsnes: counter 1 always runs (to properly release the latch)
@@ -129,30 +124,17 @@ void AutoJoypad::Tick128(uint16_t h, uint16_t v, uint16_t vdisp) {
     //   Even counter: read serial data from controller shift register
     //   Odd counter:  shift data into joy1-4 registers
     //
-    // For a standard gamepad, bit 0 of serial data is the button state.
-    // Bit 1 is always 0 (used for multitap, which we don't model).
-    // This means joy3 and joy4 are always 0 for standard controllers.
+    // Both serial wires feed the four result registers.
     if (counter_ >= 2) {
         if ((counter_ & 1) == 0) {
-            // Read: extract next bit from latched pad data (MSB first)
-            if (shiftPos_ < 16) {
-                port1Data_ = static_cast<uint8_t>(
-                    (port1Pad_ >> (15 - shiftPos_)) & 1);
-                port2Data_ = static_cast<uint8_t>(
-                    (port2Pad_ >> (15 - shiftPos_)) & 1);
-            } else {
-                // After 16 bits, controller returns 1
-                port1Data_ = 1;
-                port2Data_ = 1;
-            }
+            port1Data_ = ports_.Read(0);
+            port2Data_ = ports_.Read(1);
         } else {
             // Shift: push bit into joy registers
             joy1_ = static_cast<uint16_t>((joy1_ << 1) | (port1Data_ & 1));
             joy2_ = static_cast<uint16_t>((joy2_ << 1) | (port2Data_ & 1));
-            // Bit 1: always 0 for standard gamepad → joy3/4 stay 0
             joy3_ = static_cast<uint16_t>((joy3_ << 1) | ((port1Data_ >> 1) & 1));
             joy4_ = static_cast<uint16_t>((joy4_ << 1) | ((port2Data_ >> 1) & 1));
-            shiftPos_++;
         }
     }
 }

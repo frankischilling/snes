@@ -345,6 +345,13 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
     const auto mapping = cart.Header().mapping;
 
     switch (mapping) {
+    case MappingType::BroadcastLoRom:
+    case MappingType::BroadcastHiRom:
+        MapRange(0x00, 0x3f, 0x6000, 0xffff, cartSlot);
+        MapRange(0x80, 0xbf, 0x6000, 0xffff, cartSlot);
+        MapRange(0x40, 0x7d, 0x0000, 0xffff, cartSlot);
+        MapRange(0xc0, 0xff, 0x0000, 0xffff, cartSlot);
+        break;
     case MappingType::SufamiTurbo:
         MapRange(0x00, 0x63, 0x8000, 0xffff, cartSlot);
         MapRange(0x80, 0xe3, 0x8000, 0xffff, cartSlot);

@@ -23,7 +23,9 @@ enum class MappingType {
     LoRomNoMad1,
     LoRom24Mbit,
     LoRomLargeSram,
-    SufamiTurbo
+    SufamiTurbo,
+    BroadcastLoRom,
+    BroadcastHiRom
 };
 
 const char* MappingName(MappingType mapping) noexcept;
@@ -92,6 +94,9 @@ public:
     static std::optional<Cartridge> FromSufamiTurbo(
         std::span<const uint8_t> bios, std::span<const uint8_t> slotA,
         std::span<const uint8_t> slotB, std::string* error = nullptr);
+    static std::optional<Cartridge> FromBroadcastCartridge(
+        std::span<const uint8_t> base, std::span<const uint8_t> pack,
+        std::string* error = nullptr);
 
     const RomHeader& Header() const noexcept;
     uint32_t RomCrc32() const noexcept;
@@ -109,6 +114,8 @@ public:
     void LoadSram(std::span<const uint8_t> data);
     std::span<const uint8_t> SlotSramData(unsigned slot) const noexcept;
     void LoadSlotSram(unsigned slot, std::span<const uint8_t> data);
+    std::span<const uint8_t> MemoryPackData() const noexcept;
+    bool LoadMemoryPack(std::span<const uint8_t> data);
 
 private:
     static std::optional<RomHeader> ParseHeader(std::span<const uint8_t> rom);
@@ -121,6 +128,10 @@ private:
     std::optional<size_t> ResolveRomOffset(uint32_t cpuAddress) const;
     std::optional<size_t> ResolveSramOffset(uint32_t cpuAddress) const;
     bool SelectsLoRomSram(uint32_t cpuAddress) const;
+    std::optional<size_t> ResolveMemoryPackOffset(uint32_t cpuAddress) const;
+    bool SelectsFlashIo(uint32_t cpuAddress) const;
+    uint8_t ReadMemoryPack(uint32_t cpuAddress, size_t offset) const;
+    void WriteMemoryPack(uint32_t cpuAddress, size_t offset, uint8_t value);
 
     static uint32_t ComputeCrc32(std::span<const uint8_t> data);
 
@@ -131,6 +142,14 @@ private:
     bool memselFast_ = false;
     size_t slotSize_[2]{};
     size_t slotOffset_[2]{};
+    std::vector<uint8_t> memoryPack_;
+    bool memoryPackReadOnly_ = false;
+    bool broadcast24Mbit_ = false;
+    bool flashProgram_ = false;
+    bool flashVendor_ = false;
+    bool flashExtendedStatus_ = false;
+    mutable bool flashStatus_ = false;
+    uint8_t flashCommand_ = 0;
 };
 
 } // namespace snes::core

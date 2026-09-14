@@ -8,6 +8,8 @@
 
 #include <cstdlib>
 #include <string>
+#include <algorithm>
+#include <cmath>
 
 namespace snes::frontend {
 
@@ -17,6 +19,69 @@ SdlInputProvider::SdlInputProvider(const KeyMap& keyMap)
     : keyMap_(keyMap)
     , scriptedRanges_(ParseScript())
 {}
+
+SdlInputProvider::~SdlInputProvider() {
+    for (auto* gamepad : gamepads_) if (gamepad) SDL_CloseGamepad(gamepad);
+}
+
+void SdlInputProvider::RefreshGamepads(uint64_t frameIndex) {
+    if (lastDeviceFrame_ == frameIndex) return;
+    lastDeviceFrame_ = frameIndex;
+    for (auto& gamepad : gamepads_) {
+        if (gamepad && !SDL_GamepadConnected(gamepad)) {
+            SDL_CloseGamepad(gamepad);
+            gamepad = nullptr;
+        }
+    }
+    int count = 0;
+    auto* ids = SDL_GetGamepads(&count);
+    for (int i = 0; ids && i < count; ++i) {
+        const auto known = std::find_if(gamepads_.begin(), gamepads_.end(),
+            [&](SDL_Gamepad* pad) { return pad && SDL_GetGamepadID(pad) == ids[i]; });
+        if (known != gamepads_.end()) continue;
+        auto empty = std::find(gamepads_.begin(), gamepads_.end(), nullptr);
+        if (empty == gamepads_.end()) break;
+        *empty = SDL_OpenGamepad(ids[i]);
+    }
+    SDL_free(ids);
+}
+
+snes::core::InputState SdlInputProvider::PollController(int player, uint64_t frameIndex) {
+    if (player < 0 || player >= static_cast<int>(gamepads_.size())) return {};
+    RefreshGamepads(frameIndex);
+    auto state = player == 0 ? Poll(frameIndex) : snes::core::InputState{};
+    auto* pad = gamepads_[player];
+    if (!pad) return state;
+    const auto button = [&](SDL_GamepadButton id) { return SDL_GetGamepadButton(pad, id); };
+    const auto x = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
+    const auto y = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+    state.up |= button(SDL_GAMEPAD_BUTTON_DPAD_UP) || y < -16000;
+    state.down |= button(SDL_GAMEPAD_BUTTON_DPAD_DOWN) || y > 16000;
+    state.left |= button(SDL_GAMEPAD_BUTTON_DPAD_LEFT) || x < -16000;
+    state.right |= button(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || x > 16000;
+    state.b |= button(SDL_GAMEPAD_BUTTON_SOUTH);
+    state.a |= button(SDL_GAMEPAD_BUTTON_EAST);
+    state.y |= button(SDL_GAMEPAD_BUTTON_WEST);
+    state.x |= button(SDL_GAMEPAD_BUTTON_NORTH);
+    state.l |= button(SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+    state.r |= button(SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
+    state.start |= button(SDL_GAMEPAD_BUTTON_START);
+    state.select |= button(SDL_GAMEPAD_BUTTON_BACK);
+    return state;
+}
+
+snes::core::MouseState SdlInputProvider::PollMouse(int /*port*/, uint64_t /*frameIndex*/) {
+    float x = 0, y = 0;
+    const auto buttons = SDL_GetRelativeMouseState(&x, &y);
+    mouseFractionX_ += x;
+    mouseFractionY_ += y;
+    // Bound conversions even if a backend reports an extreme motion event.
+    const auto dx = static_cast<int32_t>(std::clamp(std::trunc(mouseFractionX_), -1000000.0f, 1000000.0f));
+    const auto dy = static_cast<int32_t>(std::clamp(std::trunc(mouseFractionY_), -1000000.0f, 1000000.0f));
+    mouseFractionX_ -= dx;
+    mouseFractionY_ -= dy;
+    return {dx, dy, (buttons & SDL_BUTTON_LMASK) != 0, (buttons & SDL_BUTTON_RMASK) != 0};
+}
 
 snes::core::InputState SdlInputProvider::Poll(uint64_t frameIndex) {
     // SDL_GetKeyboardState returns a pointer to an internal array indexed by
