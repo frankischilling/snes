@@ -5,6 +5,8 @@ add_library(snes_core
   src/Dma.cpp
   src/Dsp.cpp
   src/Dsp1.cpp
+  src/Dsp2.cpp
+  src/Srtc.cpp
   src/Ppu.cpp
   src/PpuRender.cpp
   src/Processor65816.cpp

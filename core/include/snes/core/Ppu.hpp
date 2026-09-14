@@ -65,6 +65,7 @@ public:
     bool DisplayDisable() const noexcept { return io_.displayDisable; }
     uint8_t Brightness() const noexcept { return io_.displayBrightness; }
     bool FieldID()       const noexcept { return fieldId_; }
+    void SetPal(bool pal) noexcept { isPal_ = pal; }
 
     // Counters (for H/V counter latching by CPU I/O $2137, $213C-$213F)
 

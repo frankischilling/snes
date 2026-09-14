@@ -49,6 +49,7 @@ public:
 
     /// Master clock frequency (≈21.477 MHz crystal ÷ 1)
     static constexpr uint32_t kMasterClockHz = 21'477'272;
+    static constexpr uint32_t kMasterClockHzPal = 21'281'370;
 
     /// Normal scanline width in master clocks.
     static constexpr uint16_t kDotsPerLine = 1364;
@@ -94,6 +95,7 @@ public:
 
     /// Get/set region (changes scanline count + short/long line rules).
     Region GetRegion() const noexcept { return region_; }
+    uint32_t MasterClockHz() const noexcept { return region_ == Region::PAL ? kMasterClockHzPal : kMasterClockHz; }
     void SetRegion(Region r) noexcept;
 
     /// Get/set interlace mode (mirrors PPU SETINI bit 0).

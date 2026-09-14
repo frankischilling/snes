@@ -118,7 +118,7 @@ int main() {
         cartridge->SetMemselFast(false);
         assert(cartridge->AccessCycles(0xC08000) == 8);
         cartridge->SetMemselFast(true);
-        assert(cartridge->AccessCycles(0xC08000) == 8);
+        assert(cartridge->AccessCycles(0xC08000) == 6);
     }
 
     {

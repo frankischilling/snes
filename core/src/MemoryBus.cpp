@@ -328,11 +328,7 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
     // (LoROM/HiROM/ExHiROM), so we delegate to it.
     uint8_t cartSlot = RegisterHandler(
         [&cart](uint32_t addr, uint8_t openBus) -> uint8_t {
-            // Cartridge::Read returns 0xFF for unmapped, but we should
-            // return open bus for truly unmapped addresses.
-            // The cart's own Read already handles ROM + SRAM resolution.
-            (void)openBus;
-            return cart.Read(addr);
+            return cart.Read(addr, openBus);
         },
         [&cart](uint32_t addr, uint8_t data) {
             cart.Write(addr, data);
@@ -345,6 +341,12 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
     const auto mapping = cart.Header().mapping;
 
     switch (mapping) {
+    case MappingType::SufamiTurbo:
+        MapRange(0x00, 0x63, 0x8000, 0xffff, cartSlot);
+        MapRange(0x80, 0xe3, 0x8000, 0xffff, cartSlot);
+        MapRange(0x70, 0x73, 0x8000, 0xffff, cartSlot);
+        MapRange(0xf0, 0xf3, 0x8000, 0xffff, cartSlot);
+        break;
     case MappingType::ExLoRom:
     case MappingType::LoRomNoMad1:
     case MappingType::LoRomLargeSram:
