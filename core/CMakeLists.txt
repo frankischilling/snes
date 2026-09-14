@@ -2,6 +2,7 @@ add_library(snes_core
   src/cartridge/Cartridge.cpp
   src/cartridge/BroadcastCartridge.cpp
   src/cartridge/Sdd1.cpp
+  src/cartridge/St010.cpp
   src/cpu/Cpu65816.cpp
   src/cpu/Processor65816.cpp
   src/cpu/SnesCpu.cpp

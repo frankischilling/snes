@@ -45,4 +45,6 @@ The arguments are ROM path, frame count, optional output path, and optional Star
 
 [Light guns and raster memory](light-guns-and-raster.md) covers Super Scope, one or two Justifiers, MACS rifle, beam-counter input, and preserving graphics memory across scanlines.
 
-SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. These need processors, register models, or data paths in addition to address mapping. Save states and rewind also remain unfinished.
+[ST010 cartridge support](st010.md) covers its board map, math commands, shared RAM, and command-level accuracy limits.
+
+SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. These need processors, register models, or data paths in addition to address mapping. Save states and rewind also remain unfinished.

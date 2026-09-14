@@ -64,7 +64,7 @@ void DetectionAndReload() {
         Fixture{0x3a, 0xf9, 0, EnhancementChip::Spc7110Rtc, false},
         Fixture{0x20, 0xf3, 0, EnhancementChip::Cx4, false},
         Fixture{0x30, 0xf5, 0, EnhancementChip::St018, false},
-        Fixture{0x30, 0xf6, 0, EnhancementChip::St010, false}}) {
+        Fixture{0x30, 0xf6, 0, EnhancementChip::St010, true}}) {
         auto bytes = Rom(f.mode == 0x35 ? 0x500000 : 0x100000, f.mode, f.type);
         const size_t header = f.mode == 0x35 ? 0x40ffc0 : f.mode == 0x21 ? 0xffc0 : 0x7fc0;
         bytes[header + 0x1a] = f.maker;

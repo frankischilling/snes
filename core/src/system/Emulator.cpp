@@ -38,6 +38,7 @@ std::optional<const char*> UnsupportedChipName(EnhancementChip chip) {
     case EnhancementChip::Obc1:
     case EnhancementChip::Srtc:
     case EnhancementChip::Sdd1:
+    case EnhancementChip::St010:
         return std::nullopt;
     default:
         return ChipName(chip);

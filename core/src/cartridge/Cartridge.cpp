@@ -173,6 +173,7 @@ const char* MappingName(MappingType mapping) noexcept {
     case MappingType::LoRomNoMad1: return "LoROM (NoMAD-1)";
     case MappingType::LoRom24Mbit: return "LoROM (24 Mbit board)";
     case MappingType::LoRomLargeSram: return "LoROM (large SRAM board)";
+    case MappingType::St010: return "ST010 LoROM";
     case MappingType::SufamiTurbo: return "Sufami Turbo";
     case MappingType::BroadcastLoRom: return "BS cartridge (LoROM)";
     case MappingType::BroadcastHiRom: return "BS cartridge (HiROM)";
@@ -273,6 +274,8 @@ std::optional<Cartridge> Cartridge::FromRomImage(std::span<const uint8_t> romIma
 
     if (cart.header_.chip == EnhancementChip::Sdd1)
         cart.header_.mapping = MappingType::Sdd1;
+    if (cart.header_.chip == EnhancementChip::St010)
+        cart.header_.mapping = MappingType::St010;
     if (cart.rom_.size() >= 0x800000 &&
         (cart.header_.chip == EnhancementChip::Sdd1 ||
          cart.header_.title == "STREET FIGHTER ALPHA2" ||
@@ -315,7 +318,14 @@ std::optional<Cartridge> Cartridge::FromRomImage(std::span<const uint8_t> romIma
         }
     }
 
-    cart.sram_.assign(forcedSramSize.value_or(HeaderSramSize(cart.header_.sramSizeShift)), 0x00);
+    if (cart.header_.chip == EnhancementChip::St010 || cart.header_.mapping == MappingType::St010) {
+        cart.header_.chip = EnhancementChip::St010;
+        cart.header_.mapping = MappingType::St010;
+        cart.header_.sramSizeShift = 2;
+        cart.sram_.assign(0x1000, 0);
+    } else {
+        cart.sram_.assign(forcedSramSize.value_or(HeaderSramSize(cart.header_.sramSizeShift)), 0x00);
+    }
     if (cart.header_.mapping == MappingType::DecompressedSdd1) cart.sram_.clear();
 
     if (normalization != nullptr) {
@@ -376,6 +386,8 @@ bool Cartridge::MemselFast() const noexcept {
 }
 
 uint8_t Cartridge::Read(uint32_t cpuAddress, uint8_t openBus) const {
+    if (header_.mapping == MappingType::St010 && St010::Selects(cpuAddress))
+        return st010_.Read(cpuAddress, sram_);
     if (header_.mapping == MappingType::Sdd1 && (cpuAddress & 0x40fff8) == 0x4800)
         return sdd1Registers_[cpuAddress & 7];
     if (const auto offset = ResolveMemoryPackOffset(cpuAddress))
@@ -392,6 +404,10 @@ uint8_t Cartridge::Read(uint32_t cpuAddress, uint8_t openBus) const {
 }
 
 void Cartridge::Write(uint32_t cpuAddress, uint8_t value) {
+    if (header_.mapping == MappingType::St010 && St010::Selects(cpuAddress)) {
+        st010_.Write(cpuAddress, value, sram_);
+        return;
+    }
     if (header_.mapping == MappingType::Sdd1 && (cpuAddress & 0x40fff8) == 0x4800) {
         sdd1Registers_[cpuAddress & 7] = value;
         return;
@@ -601,6 +617,10 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
     if (SelectsLoRomSram(cpuAddress)) return std::nullopt;
 
     switch (header_.mapping) {
+    case MappingType::St010:
+        if (addr >= 0x8000 && bank != 0x7e && bank != 0x7f)
+            return MirrorOffset((size_t(bank & 0x7f) << 15) | (addr & 0x7fff), rom_.size());
+        return std::nullopt;
     case MappingType::Sdd1:
         if (bank >= 0xc0)
             return MirrorOffset((size_t(sdd1Registers_[4 + ((bank - 0xc0) >> 4)] & 7) << 20) |
@@ -718,6 +738,7 @@ std::optional<size_t> Cartridge::ResolveRomOffset(uint32_t cpuAddress) const {
 
 bool Cartridge::SelectsLoRomSram(uint32_t cpuAddress) const {
     switch (header_.mapping) {
+    case MappingType::St010:
     case MappingType::LoRom: case MappingType::ExLoRom:
     case MappingType::BroadcastLoRom:
     case MappingType::LoRomNoMad1: case MappingType::LoRom24Mbit: break;
@@ -761,6 +782,7 @@ std::optional<size_t> Cartridge::ResolveSramOffset(uint32_t cpuAddress) const {
     case MappingType::LoRomNoMad1:
     case MappingType::LoRom24Mbit:
     case MappingType::BroadcastLoRom:
+    case MappingType::St010:
     case MappingType::LoRom: {
         if (SelectsLoRomSram(cpuAddress)) {
             const auto linear = (static_cast<size_t>(bank & 0x0F) * 0x8000) + (addr & 0x7fff);

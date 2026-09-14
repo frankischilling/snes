@@ -40,6 +40,10 @@ add_executable(snes_sdd1_tests test_sdd1.cpp)
 target_link_libraries(snes_sdd1_tests PRIVATE snes_core)
 add_test(NAME snes_sdd1_tests COMMAND snes_sdd1_tests)
 
+add_executable(snes_st010_tests test_st010.cpp)
+target_link_libraries(snes_st010_tests PRIVATE snes_core)
+add_test(NAME snes_st010_tests COMMAND snes_st010_tests)
+
 add_executable(snes_dma_timing_tests test_dma_timing.cpp)
 target_link_libraries(snes_dma_timing_tests PRIVATE snes_core)
 add_test(NAME snes_dma_timing_tests COMMAND snes_dma_timing_tests)

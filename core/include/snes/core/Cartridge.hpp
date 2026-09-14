@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "snes/core/St010.hpp"
+
 #include <cstddef>
 #include <array>
 #include <cstdint>
@@ -28,7 +30,8 @@ enum class MappingType {
     BroadcastLoRom,
     BroadcastHiRom,
     Sdd1,
-    DecompressedSdd1
+    DecompressedSdd1,
+    St010
 };
 
 const char* MappingName(MappingType mapping) noexcept;
@@ -158,6 +161,7 @@ private:
     mutable bool flashStatus_ = false;
     uint8_t flashCommand_ = 0;
     std::array<uint8_t, 8> sdd1Registers_{0, 0, 0, 0, 0, 1, 2, 3};
+    St010 st010_;
 };
 
 } // namespace snes::core

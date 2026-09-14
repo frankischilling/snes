@@ -62,4 +62,4 @@ Local 1,800-frame checks produced visible output and non-silent audio for Super 
 
 [Controllers and cartridge slots](controllers-and-slots.md) describes mouse, multitap, BS slot boards, and combined Sufami Turbo support. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) covers decompression, bank switching, expanded ROM layouts, and video changes.
 
-SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states and rewind also remain unfinished. Register and mapper coverage here is not full system compatibility.
+SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states and rewind also remain unfinished. Register and mapper coverage here is not full system compatibility.
