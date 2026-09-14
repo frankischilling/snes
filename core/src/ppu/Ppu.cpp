@@ -59,7 +59,7 @@ void Ppu::Reset() {
                 static_cast<size_t>(OutputWidth) * OutputHeight * sizeof(uint32_t));
 
     currentLine_ = 0;
-    currentDot_ = 0;
+    currentHClock_ = 0;
     cpuPio_ = 0xFF;
     fieldId_ = false;
     frameOverscan_ = false;
@@ -95,7 +95,7 @@ void Ppu::ScanlineBegin(uint16_t line) {
         io_.mosaic.counter = mosaicEnable ? io_.mosaic.size : 0;
     }
 
-    // Snapshot IO state and CGRAM for this scanline
+    // Preserve the memory and register state used by this scanline.
     if (line > 0 && line < 240) {
         auto& cache = lines_[line];
         cache.y = line;
@@ -106,6 +106,9 @@ void Ppu::ScanlineBegin(uint16_t line) {
             cache.io.displayDisable = true;
         } else {
             std::memcpy(cache.cgram, cgram_.data(), sizeof(cache.cgram));
+            std::copy_n(vram_.get(), VramWords, cache.vram.begin());
+            ParseOam();
+            cache.objects = objects_;
         }
 
         if (lineCount_ == 0) lineStart_ = line;
@@ -198,7 +201,7 @@ uint8_t Ppu::ReadCgram(bool highByte, uint8_t address) {
     // the CPU can access CGRAM normally even on visible scanlines.
     // bsnes: hcounter >= 88 && hcounter < 1096
     if (!io_.displayDisable && currentLine_ > 0 && currentLine_ < VDisp()
-        && currentDot_ >= 88 && currentDot_ < 1096) {
+        && currentHClock_ >= 88 && currentHClock_ < 1096) {
         address = latch_.cgramAddress;
     }
     if (!highByte) {
@@ -210,7 +213,7 @@ uint8_t Ppu::ReadCgram(bool highByte, uint8_t address) {
 
 void Ppu::WriteCgram(uint8_t address, uint16_t data) {
     if (!io_.displayDisable && currentLine_ > 0 && currentLine_ < VDisp()
-        && currentDot_ >= 88 && currentDot_ < 1096) {
+        && currentHClock_ >= 88 && currentHClock_ < 1096) {
         address = latch_.cgramAddress;
     }
     cgram_[address] = data & 0x7FFF; // 15-bit color

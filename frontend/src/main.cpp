@@ -41,6 +41,10 @@ int main(int argc, char* argv[]) {
             else if (name == "mouse") device = ControllerDevice::Mouse;
             else if (name == "multitap") device = ControllerDevice::Multitap;
             else if (name == "none") device = ControllerDevice::None;
+            else if (name == "scope") device = ControllerDevice::SuperScope;
+            else if (name == "justifier") device = ControllerDevice::Justifier;
+            else if (name == "justifiers") device = ControllerDevice::Justifiers;
+            else if (name == "rifle") device = ControllerDevice::MacsRifle;
             else {
                 std::cerr << "Unknown controller device: " << name << '\n';
                 return EXIT_FAILURE;
@@ -55,10 +59,19 @@ int main(int argc, char* argv[]) {
         std::cerr << "Usage: snes_frontend [--port1=pad|mouse|multitap|none] [--port2=...] <rom_file.smc>\n"
                   << "       snes_frontend [controller options] --sufami <bios.bin> <slot-a.st|-> [slot-b.st|-]\n"
                   << "       snes_frontend [controller options] --broadcast <base.sfc> <pack.bs|->\n";
+        std::cerr << "       Port 2 also supports scope, justifier, justifiers, and rifle\n";
         return EXIT_FAILURE;
     }
     if (devices[0] == ControllerDevice::Mouse && devices[1] == ControllerDevice::Mouse) {
         std::cerr << "The frontend supports one host mouse; choose one console port\n";
+        return EXIT_FAILURE;
+    }
+    if (snes::core::IsLightGun(devices[0])) {
+        std::cerr << "Connect light guns to port 2 for beam-counter input\n";
+        return EXIT_FAILURE;
+    }
+    if (devices[0] == ControllerDevice::Mouse && snes::core::IsLightGun(devices[1])) {
+        std::cerr << "The host pointer cannot control a relative mouse and a light gun together\n";
         return EXIT_FAILURE;
     }
     const std::string romPath = arguments[sufami || broadcast ? 1 : 0];
@@ -205,6 +218,14 @@ int main(int argc, char* argv[]) {
             if (!audio->NeedsSamples()) {
                 SDL_Delay(1);
                 continue;
+            }
+            if (snes::core::IsLightGun(devices[1])) {
+                input->SetGunViewport(video->InputViewport(), (SDL_GetWindowFlags(video->Window()) & SDL_WINDOW_INPUT_FOCUS) != 0);
+                const unsigned count = devices[1] == ControllerDevice::Justifiers ? 2 : 1;
+                std::array<snes::core::LightGunState, 2> aim;
+                for (unsigned gun = 0; gun < count; ++gun)
+                    aim[gun] = input->PollLightGun(1, gun, emulator->CurrentFrame());
+                video->SetGunAim(aim, count);
             }
             emulator->StepFrame();
             if (emulator->CurrentFrame() % 300 == 0) flushSaves();

@@ -126,6 +126,40 @@ snes::core::InputState SdlInputProvider::Poll(uint64_t frameIndex) {
     return state;
 }
 
+snes::core::LightGunState SdlInputProvider::PollLightGun(int port, int gun, uint64_t frameIndex) {
+    if (port < 0 || port > 1 || gun < 0 || gun > 1 || !gunFocused_) return {};
+    int count = 0;
+    const auto* keys = SDL_GetKeyboardState(&count);
+    const auto pressed = [&](SDL_Scancode key) { return keys && int(key) >= 0 && int(key) < count && keys[key]; };
+    if (lastGunFrame_ != frameIndex) {
+        lastGunFrame_ = frameIndex;
+        const bool turbo = pressed(SDL_SCANCODE_T);
+        if (turbo && !turboKeyDown_) scopeTurbo_ = !scopeTurbo_;
+        turboKeyDown_ = turbo;
+        secondGunX_ = std::clamp(secondGunX_ + 3 * (int(pressed(SDL_SCANCODE_L)) - int(pressed(SDL_SCANCODE_J))), 0, 255);
+        secondGunY_ = std::clamp(secondGunY_ + 3 * (int(pressed(SDL_SCANCODE_K)) - int(pressed(SDL_SCANCODE_I))),
+                                 0, int(std::max(1u, gunViewport_.visibleLines)) - 1);
+    }
+    snes::core::LightGunState state;
+    if (gun == 0) {
+        float x = 0, y = 0;
+        const auto buttons = SDL_GetMouseState(&x, &y);
+        state = gunViewport_.Aim(x, y);
+        state.trigger = (buttons & SDL_BUTTON_LMASK) != 0;
+        state.cursor = (buttons & SDL_BUTTON_RMASK) != 0;
+        state.start = pressed(SDL_SCANCODE_RETURN);
+        state.pause = pressed(SDL_SCANCODE_P);
+        state.turbo = scopeTurbo_;
+        state.offscreen |= pressed(SDL_SCANCODE_O);
+    } else {
+        state.x = secondGunX_; state.y = secondGunY_;
+        state.trigger = pressed(SDL_SCANCODE_RCTRL);
+        state.start = pressed(SDL_SCANCODE_BACKSPACE);
+        state.offscreen = pressed(SDL_SCANCODE_U);
+    }
+    return state;
+}
+
 SdlInputProvider::ScriptRanges SdlInputProvider::ParseScript() {
     ScriptRanges ranges;
 

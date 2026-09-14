@@ -2353,7 +2353,7 @@ int main() {
             ppu.SetCurrentLine(100);
 
             // During active dots (H=500, inside [88, 1096)), CGRAM read uses latched address
-            ppu.SetCurrentDot(500);
+            ppu.SetCurrentHClock(500);
             // Set read address to color 1
             ppu.WriteIO(0x2121, 0x01);
             // But latched address is whatever was last latched (0 after reset? — actually latch_.cgramAddress = 0)
@@ -2364,7 +2364,7 @@ int main() {
             assert((hi & 0x7F) == 0x12);
 
             // During HBlank (H=1200, outside [88, 1096)), CGRAM read uses the set address
-            ppu.SetCurrentDot(1200);
+            ppu.SetCurrentHClock(1200);
             ppu.WriteIO(0x2121, 0x01);  // set to color 1
             lo = ppu.ReadIO(0x213B, 0x00);
             hi = ppu.ReadIO(0x213B, 0x00);

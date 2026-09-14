@@ -148,9 +148,9 @@ uint8_t CpuIoRegisters::Read(uint32_t addr, uint8_t openBus) {
         return data;
     }
 
-    // $4213 RDIO — programmable I/O port (returns last WRIO value)
+    // $4213 RDIO — WRIO outputs combined with external input levels.
     case 0x4213:
-        return pio_;
+        return pio_ & (onPioInput_ ? onPioInput_() : 0xff);
 
     // $4214-$4215 RDDIVL/RDDIVH — division result
     case 0x4214: return static_cast<uint8_t>(rddiv_ >> 0);

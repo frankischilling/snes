@@ -211,6 +211,68 @@ void MixedWidthsAndFields() {
     Render(*ppu);
     Expect(ppu->FrameWidth() == 256 && ppu->FrameHeight() == 224, "Leaving interlace restores normal frame dimensions");
 }
+void RasterMemoryChanges() {
+    for (bool tilemap : {false, true}) {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->WriteIO(0x210b, 1);
+        ppu->WriteIO(0x212c, 1);
+        ppu->CgramData()[1] = 0x001f;
+        ppu->CgramData()[2] = 0x03e0;
+        for (int row = 0; row < 8; ++row) {
+            ppu->VramData()[0x1000 + row] = 0x00ff;
+            ppu->VramData()[0x1008 + row] = 0xff00;
+        }
+        ppu->FrameBegin();
+        ppu->ScanlineBegin(1);
+        if (tilemap) ppu->VramData()[0] = 1;
+        else for (int row = 0; row < 8; ++row) ppu->VramData()[0x1000 + row] = 0xff00;
+        ppu->ScanlineBegin(2);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 0, 0) == 0x001f && Pixel(*ppu, 0, 1) == 0x03e0,
+               "Tile and tilemap updates preserve earlier scanlines");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->WriteIO(0x2105, 7);
+        ppu->WriteIO(0x212c, 1);
+        Write16(*ppu, 0x211b, 0x0100);
+        Write16(*ppu, 0x211e, 0x0100);
+        ppu->CgramData()[1] = 0x001f;
+        ppu->CgramData()[2] = 0x03e0;
+        for (int i = 0; i < 64; ++i) ppu->VramData()[i] = 0x0100;
+        ppu->FrameBegin();
+        ppu->ScanlineBegin(1);
+        for (int i = 0; i < 64; ++i) ppu->VramData()[i] = 0x0200;
+        ppu->ScanlineBegin(2);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 0, 0) == 0x001f && Pixel(*ppu, 0, 1) == 0x03e0,
+               "Mode 7 reads each line's tile memory");
+    }
+    for (bool tileData : {false, true}) {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->WriteIO(0x2101, 2);
+        ppu->WriteIO(0x212c, 0x10);
+        ppu->CgramData()[129] = 0x001f;
+        ppu->CgramData()[130] = 0x03e0;
+        for (int i = 0; i < 128; ++i) ppu->OamData()[4 * i + 1] = 240;
+        ppu->OamData()[1] = 0;
+        ppu->OamData()[3] = 0x30;
+        for (int row = 0; row < 8; ++row) ppu->VramData()[0x4000 + row] = 0x00ff;
+        ppu->FrameBegin();
+        ppu->ScanlineBegin(1);
+        if (tileData) for (int row = 0; row < 8; ++row) ppu->VramData()[0x4000 + row] = 0xff00;
+        else ppu->OamData()[0] = 16;
+        ppu->ScanlineBegin(2);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 0, 0) == 0x001f, "Later OBJ changes preserve earlier sprite rows");
+        Expect(Pixel(*ppu, tileData ? 0 : 16, 1) == (tileData ? 0x03e0 : 0x001f),
+               "Later sprite rows use updated OAM and tile memory");
+        if (!tileData) Expect(Pixel(*ppu, 0, 1) == 0, "Moved sprite leaves its old position");
+    }
+}
 } // namespace
 
 int main() {
@@ -220,6 +282,7 @@ int main() {
     Mode7VerticalMosaic();
     HighResolutionOutput();
     MixedWidthsAndFields();
+    RasterMemoryChanges();
     std::printf("PPU regression failures: %d\n", failures);
     return failures ? 1 : 0;
 }

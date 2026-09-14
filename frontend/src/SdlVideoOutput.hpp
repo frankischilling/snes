@@ -17,6 +17,8 @@
 // SDL_CreateTexture / SDL_UpdateTexture / SDL_RenderTexture.
 
 #include "snes/core/Platform.hpp"
+#include "VideoGeometry.hpp"
+#include <array>
 
 #include <SDL3/SDL.h>
 #include <cstdint>
@@ -57,6 +59,8 @@ public:
 
     /// Returns the SDL window ID (for matching SDL_WindowEvent).
     uint32_t WindowID() const noexcept;
+    VideoViewport InputViewport() const;
+    void SetGunAim(std::array<snes::core::LightGunState, 2> aim, unsigned count) { gunAim_ = aim; gunCount_ = count; }
 
 private:
     /// (Re-)create the streaming texture to match the given dimensions.
@@ -69,6 +73,8 @@ private:
     // Current texture dimensions (recreated if frame size changes)
     uint32_t texW_ = 0;
     uint32_t texH_ = 0;
+    std::array<snes::core::LightGunState, 2> gunAim_{};
+    unsigned gunCount_ = 0;
 };
 
 } // namespace snes::frontend

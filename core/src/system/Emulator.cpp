@@ -281,6 +281,10 @@ void Emulator::InitSubsystems() {
         ppu_.SetCpuPio(pio);
         autoJoypad_.Ports().SetPio(pio);
     });
+    cpuIo_.SetPioInputCallback([this]() { return autoJoypad_.Ports().IoBits(); });
+    autoJoypad_.Ports().SetGunLatchCallback([this](uint16_t h, uint16_t v) {
+        ppu_.LatchCounters(h, v);
+    });
 
     // PPU counter latch ($2137 SLHV read when PIO bit 7 is high)
     ppu_.SetCounterLatchCallback([this]() {
@@ -322,9 +326,10 @@ void Emulator::InitSubsystems() {
     // V=0, H=0 — start of frame
     timing_.onFrameBegin = [this]() {
         ppu_.SetCurrentLine(0);
-        ppu_.SetCurrentDot(0);
+        ppu_.SetCurrentHClock(0);
         ppu_.FrameBegin();
         autoJoypad_.FrameBegin();
+        autoJoypad_.Ports().FrameBegin();
         dma_.HdmaReset();
         if (dma_.AnyHdmaEnabled()) {
             pendingExtraClocks_ += dma_.HdmaSetup();
@@ -334,7 +339,7 @@ void Emulator::InitSubsystems() {
     // New scanline
     timing_.onScanline = [this](uint16_t v) {
         ppu_.SetCurrentLine(v);
-        ppu_.SetCurrentDot(0);
+        ppu_.SetCurrentHClock(0);
     };
 
     // Cache visible scanlines at the render sampling point rather than H=0.
@@ -366,6 +371,7 @@ void Emulator::InitSubsystems() {
     // IRQ/NMI condition polling (every ~4 master clocks)
     timing_.onIrqPoll = [this](uint16_t h, uint16_t v, uint16_t vdisp, uint16_t hperiod) {
         irq_.Poll(h, v, vdisp, hperiod);
+        autoJoypad_.Ports().BeamPosition(timing_.HDot(), v, vdisp - 1);
     };
 
     // Auto-joypad polling (every 128 master clocks)
@@ -397,6 +403,9 @@ void Emulator::InitSubsystems() {
 
     autoJoypad_.Ports().SetMouseCallback([this](int port) {
         return inputProvider_ ? inputProvider_->PollMouse(port, frameIndex_) : MouseState{};
+    });
+    autoJoypad_.Ports().SetGunCallback([this](int port, int gun) {
+        return inputProvider_ ? inputProvider_->PollLightGun(port, gun, frameIndex_) : LightGunState{};
     });
 
     // Manual reads and automatic polling share the physical latch and clocks.
@@ -495,6 +504,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     }
 
     // Real frame loop
+    autoJoypad_.Ports().PollLightGuns();
     const auto input = inputProvider_ ? inputProvider_->PollController(0, frameIndex_) : InputState{};
 
     // Prepare DSP audio buffer for this frame
@@ -587,7 +597,7 @@ void Emulator::AdvanceClocks(uint32_t clocks) {
         pendingExtraClocks_ = 0;
         timing_.Tick(extra);
     }
-    ppu_.SetCurrentDot(timing_.HDot());
+    ppu_.SetCurrentHClock(timing_.HCounter());
     const auto elapsed = timing_.MasterClocksElapsed();
     smp_.RunUntil(elapsed * Smp::kClockFrequency / timing_.MasterClockHz());
 }
