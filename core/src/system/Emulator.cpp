@@ -129,6 +129,24 @@ bool Emulator::LoadCartridgeFromFile(const std::string& path, std::string* error
     return data && LoadCartridge(*data, error);
 }
 
+bool Emulator::LoadBroadcastCartridge(std::span<const uint8_t> base, std::span<const uint8_t> pack,
+                                      std::string* error) {
+    auto cartridge = Cartridge::FromBroadcastCartridge(base, pack, error);
+    if (!cartridge) return false;
+    cartridge_ = std::move(*cartridge);
+    InitSubsystems();
+    return true;
+}
+
+bool Emulator::LoadBroadcastCartridgeFromFiles(const std::string& basePath, const std::string& packPath,
+                                               std::string* error) {
+    const auto base = ReadImage(basePath, error);
+    if (!base) return false;
+    if (packPath.empty() || packPath == "-") return LoadBroadcastCartridge(*base, {}, error);
+    const auto pack = ReadImage(packPath, error);
+    return pack && LoadBroadcastCartridge(*base, *pack, error);
+}
+
 bool Emulator::LoadSufamiTurboFromFiles(const std::string& biosPath, const std::string& slotAPath,
                                       const std::string& slotBPath, std::string* error) {
     const auto bios = ReadImage(biosPath, error);
@@ -259,6 +277,7 @@ void Emulator::InitSubsystems() {
     });
     cpuIo_.SetPioCallback([this](uint8_t pio) {
         ppu_.SetCpuPio(pio);
+        autoJoypad_.Ports().SetPio(pio);
     });
 
     // PPU counter latch ($2137 SLHV read when PIO bit 7 is high)
@@ -367,80 +386,24 @@ void Emulator::InitSubsystems() {
     });
 
     // 7. AutoJoypad input source
-    autoJoypad_.SetInputCallback([this](int /*port*/) -> InputState {
+    autoJoypad_.SetInputCallback([this](int player) -> InputState {
         if (inputProvider_) {
-            return inputProvider_->Poll(frameIndex_);
+            return inputProvider_->PollController(player, frameIndex_);
         }
         return {};
     });
 
-    // 8. Serial joypad ($4016/$4017) — manual strobe/read support
-    //
-    // Many games (DKC, etc.) read controllers via $4016/$4017 serial
-    // protocol in addition to or instead of auto-joypad ($4218-$421F).
-    // Implements bsnes Gamepad::latch() + Gamepad::data() behavior.
-    cpuIo_.SetJoypadLatchCallback([this](bool latch) {
-        // bsnes: latch signal is CPU latch OR auto-joypad latch.
-        // The auto-joypad state machine sets autoJoypadLatch_ separately.
-        // Here we handle the CPU-side write to $4016 bit 0.
-        for (int port = 0; port < 2; port++) {
-            bool effectiveLatch = latch | autoJoypadLatch_;
-            auto& pad = serialPad_[port];
-            if (pad.latched == effectiveLatch) continue;
-            pad.latched = effectiveLatch;
-            pad.counter = 0;
+    autoJoypad_.Ports().SetMouseCallback([this](int port) {
+        return inputProvider_ ? inputProvider_->PollMouse(port, frameIndex_) : MouseState{};
+    });
 
-            if (!effectiveLatch) {
-                // Latch released (1→0): snapshot button states
-                InputState input;
-                if (inputProvider_) {
-                    input = inputProvider_->Poll(frameIndex_);
-                }
-                pad.b      = input.b;
-                pad.y      = input.y;
-                pad.select = input.select;
-                pad.start  = input.start;
-                pad.up     = input.up   && !input.down;
-                pad.down   = input.down && !input.up;
-                pad.left   = input.left && !input.right;
-                pad.right  = input.right && !input.left;
-                pad.a      = input.a;
-                pad.x      = input.x;
-                pad.l      = input.l;
-                pad.r      = input.r;
-            }
-        }
+    // Manual reads and automatic polling share the physical latch and clocks.
+    cpuIo_.SetJoypadLatchCallback([this](bool latch) {
+        autoJoypad_.SetManualLatch(latch);
     });
 
     cpuIo_.SetJoypadDataCallback([this](int port) -> uint8_t {
-        auto& pad = serialPad_[port & 1];
-        if (pad.counter >= 16) return 1;
-        if (pad.latched) {
-            // While latched, always return current state of first button (B)
-            InputState input;
-            if (inputProvider_) {
-                input = inputProvider_->Poll(frameIndex_);
-            }
-            return input.b ? 1 : 0;
-        }
-
-        bool bit = false;
-        switch (pad.counter++) {
-        case  0: bit = pad.b;      break;
-        case  1: bit = pad.y;      break;
-        case  2: bit = pad.select; break;
-        case  3: bit = pad.start;  break;
-        case  4: bit = pad.up;     break;
-        case  5: bit = pad.down;   break;
-        case  6: bit = pad.left;   break;
-        case  7: bit = pad.right;  break;
-        case  8: bit = pad.a;      break;
-        case  9: bit = pad.x;      break;
-        case 10: bit = pad.l;      break;
-        case 11: bit = pad.r;      break;
-        default: bit = false;      break;  // Bits 12-15: signature (0)
-        }
-        return bit ? 1 : 0;
+        return autoJoypad_.Ports().Read(port);
     });
 
     // 9. Reset all subsystems to power-on state
@@ -461,12 +424,6 @@ void Emulator::InitSubsystems() {
     masterCycles_ = 0;
     pendingExtraClocks_ = 0;
 
-    // Reset serial joypad state
-    for (auto& pad : serialPad_) {
-        pad = SerialJoypad{};
-    }
-    autoJoypadLatch_ = false;
-
     // Set up DSP audio output buffer
     dsp_.SetOutput(audioBuf_.data(), kAudioBufSamples);
 
@@ -483,7 +440,7 @@ void Emulator::InitSubsystems() {
 FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     // Stub path — no cartridge loaded yet
     if (!initialized_) {
-        const auto input = inputProvider_ ? inputProvider_->Poll(frameIndex_) : InputState{};
+        const auto input = inputProvider_ ? inputProvider_->PollController(0, frameIndex_) : InputState{};
 
         if (options.emitCpuBusTrace) {
             EmitTrace(CpuBusTraceEvent{
@@ -536,7 +493,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     }
 
     // Real frame loop
-    const auto input = inputProvider_ ? inputProvider_->Poll(frameIndex_) : InputState{};
+    const auto input = inputProvider_ ? inputProvider_->PollController(0, frameIndex_) : InputState{};
 
     // Prepare DSP audio buffer for this frame
     dsp_.ResetSamplesWritten();

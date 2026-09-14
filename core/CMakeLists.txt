@@ -1,5 +1,6 @@
 add_library(snes_core
   src/cartridge/Cartridge.cpp
+  src/cartridge/BroadcastCartridge.cpp
   src/cpu/Cpu65816.cpp
   src/cpu/Processor65816.cpp
   src/cpu/SnesCpu.cpp
@@ -13,6 +14,7 @@ add_library(snes_core
   src/audio/Smp.cpp
   src/audio/Srtc.cpp
   src/io/AutoJoypad.cpp
+  src/io/ControllerPorts.cpp
   src/io/CpuIoRegisters.cpp
   src/io/IrqController.cpp
   src/dma/Dma.cpp

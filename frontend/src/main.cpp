@@ -25,20 +25,48 @@
 #include <string_view>
 #include <array>
 #include <stdexcept>
+#include <vector>
 
 int main(int argc, char* argv[]) {
     // 1. Parse command-line arguments
-    const bool sufami = argc >= 2 && std::string_view(argv[1]) == "--sufami";
-    if ((!sufami && argc != 2) || (sufami && (argc < 4 || argc > 5))) {
-        std::cerr << "Usage: snes_frontend <rom_file.smc>\n"
-                  << "       snes_frontend --sufami <bios.bin> <slot-a.st|-> [slot-b.st|-]\n";
+    using snes::core::ControllerDevice;
+    std::array devices{ControllerDevice::Gamepad, ControllerDevice::Gamepad};
+    std::vector<std::string> arguments;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view value(argv[i]);
+        if (value.starts_with("--port1=") || value.starts_with("--port2=")) {
+            auto& device = devices[value[6] - '1'];
+            const auto name = value.substr(8);
+            if (name == "pad") device = ControllerDevice::Gamepad;
+            else if (name == "mouse") device = ControllerDevice::Mouse;
+            else if (name == "multitap") device = ControllerDevice::Multitap;
+            else if (name == "none") device = ControllerDevice::None;
+            else {
+                std::cerr << "Unknown controller device: " << name << '\n';
+                return EXIT_FAILURE;
+            }
+        } else arguments.emplace_back(value);
+    }
+    const bool sufami = !arguments.empty() && arguments[0] == "--sufami";
+    const bool broadcast = !arguments.empty() && arguments[0] == "--broadcast";
+    if ((!sufami && !broadcast && arguments.size() != 1) ||
+        (sufami && (arguments.size() < 3 || arguments.size() > 4)) ||
+        (broadcast && arguments.size() != 3)) {
+        std::cerr << "Usage: snes_frontend [--port1=pad|mouse|multitap|none] [--port2=...] <rom_file.smc>\n"
+                  << "       snes_frontend [controller options] --sufami <bios.bin> <slot-a.st|-> [slot-b.st|-]\n"
+                  << "       snes_frontend [controller options] --broadcast <base.sfc> <pack.bs|->\n";
         return EXIT_FAILURE;
     }
-    const std::string romPath = argv[sufami ? 2 : 1];
-    const std::array<std::string, 2> slotPaths{sufami ? argv[3] : "", sufami && argc == 5 ? argv[4] : ""};
+    if (devices[0] == ControllerDevice::Mouse && devices[1] == ControllerDevice::Mouse) {
+        std::cerr << "The frontend supports one host mouse; choose one console port\n";
+        return EXIT_FAILURE;
+    }
+    const std::string romPath = arguments[sufami || broadcast ? 1 : 0];
+    const std::array<std::string, 2> slotPaths{sufami ? arguments[2] : "",
+                                             sufami && arguments.size() == 4 ? arguments[3] : ""};
 
     // 2. Initialise SDL (video + audio + events)
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
         std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
         return EXIT_FAILURE;
     }
@@ -58,6 +86,9 @@ int main(int argc, char* argv[]) {
         video = std::make_unique<snes::frontend::SdlVideoOutput>(videoConfig);
         audio = std::make_unique<snes::frontend::SdlAudioOutput>();
         input = std::make_unique<snes::frontend::SdlInputProvider>();
+        if ((devices[0] == ControllerDevice::Mouse || devices[1] == ControllerDevice::Mouse) &&
+            !SDL_SetWindowRelativeMouseMode(video->Window(), true))
+            throw std::runtime_error(std::string("Cannot capture mouse: ") + SDL_GetError());
     } catch (const std::exception& e) {
         std::cerr << "Failed to create SDL subsystem: " << e.what() << '\n';
         return EXIT_FAILURE;
@@ -69,9 +100,17 @@ int main(int argc, char* argv[]) {
     emulator->AttachVideoOutput(video.get());
     emulator->AttachAudioOutput(audio.get());
     emulator->AttachInputProvider(input.get());
+    int nextPlayer = 0;
+    for (unsigned port = 0; port < devices.size(); ++port) {
+        std::array<int, 4> players{-1, -1, -1, -1};
+        const int count = devices[port] == ControllerDevice::Multitap ? 4 : 1;
+        for (int i = 0; i < count; ++i) players[i] = nextPlayer++;
+        emulator->GetAutoJoypad().Ports().Configure(port, devices[port], players);
+    }
 
     std::string loadError;
     const bool loaded = sufami ? emulator->LoadSufamiTurboFromFiles(romPath, slotPaths[0], slotPaths[1], &loadError) :
+                        broadcast ? emulator->LoadBroadcastCartridgeFromFiles(romPath, arguments[2], &loadError) :
                                 emulator->LoadCartridgeFromFile(romPath, &loadError);
     if (!loaded) {
         std::cerr << "Failed to load ROM: " << loadError << '\n';
@@ -85,6 +124,9 @@ int main(int argc, char* argv[]) {
     auto rtcPath = std::filesystem::path(romPath);
     rtcPath.replace_extension(".rtc");
     snes::frontend::SaveRamFile saveRtc(rtcPath);
+    auto packPath = std::filesystem::path(broadcast && arguments[2] != "-" ? arguments[2] : romPath);
+    packPath += ".flash";
+    snes::frontend::SaveRamFile savePack(packPath);
     std::array<std::unique_ptr<snes::frontend::SaveRamFile>, 2> slotSaves;
     try {
         if (sufami) {
@@ -106,6 +148,9 @@ int main(int argc, char* argv[]) {
             const auto rtc = saveRtc.Load(emulator->SaveRtc().size());
             if (!rtc.empty() && !emulator->LoadRtc(rtc))
                 throw std::runtime_error("Invalid cartridge clock save: " + rtcPath.string());
+            const auto pack = savePack.Load(cart->MemoryPackData().size());
+            if (!pack.empty() && !emulator->LoadMemoryPack(pack))
+                throw std::runtime_error("Invalid memory pack save: " + packPath.string());
         }
     } catch (const std::exception& e) {
         std::cerr << "Failed to load save RAM: " << e.what() << '\n';
@@ -124,6 +169,7 @@ int main(int argc, char* argv[]) {
         } else {
             saveRam.Flush(cart->SramData());
             saveRtc.Flush(emulator->SaveRtc());
+            savePack.Flush(cart->MemoryPackData());
         }
     };
 

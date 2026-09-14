@@ -36,6 +36,13 @@ struct InputState {
     bool select = false;
 };
 
+struct MouseState {
+    int32_t dx = 0;
+    int32_t dy = 0;
+    bool left = false;
+    bool right = false;
+};
+
 class IVideoOutput {
 public:
     virtual ~IVideoOutput() = default;
@@ -52,6 +59,11 @@ class IInputProvider {
 public:
     virtual ~IInputProvider() = default;
     virtual InputState Poll(uint64_t frameIndex) = 0;
+    virtual InputState PollController(int player, uint64_t frameIndex) {
+        return player == 0 ? Poll(frameIndex) : InputState{};
+    }
+    // Relative movement is consumed once when the console latches the mouse.
+    virtual MouseState PollMouse(int /*port*/, uint64_t /*frameIndex*/) { return {}; }
 };
 
 class ITimingSource {

@@ -39,4 +39,6 @@ The arguments are ROM path, frame count, optional output path, and optional Star
 
 [Cartridge devices and region timing](cartridge-devices.md) covers DSP-2, OBC1, S-RTC, Sufami Turbo loading and saves, PAL timing, and loader regression tests.
 
-SA-1, Super FX, DSP-3/4, S-DD1, SPC7110 and its RTC, Cx4, ST010/011/018, Satellaview, and MSU-1 remain unimplemented. These need processors, register models, data paths, or peripheral behavior in addition to address mapping. Accessory input, save states, and rewind also remain unfinished.
+[Controllers and cartridge slots](controllers-and-slots.md) covers mouse and multitap input, BS slot board mappings and flash saves, and combined Sufami Turbo images.
+
+SA-1, Super FX, DSP-3/4, S-DD1, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. These need processors, register models, data paths, or peripheral behavior in addition to address mapping. Super Scope, Justifiers, MACS rifle, save states, and rewind also remain unfinished.

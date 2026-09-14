@@ -32,7 +32,7 @@ Supply a 256 KiB BIOS and one or two game images:
 .\out\build\release\frontend\snes_frontend.exe --sufami "C:\games\bios.bin" "C:\games\slot-a.st" "C:\games\slot-b.st"
 ```
 
-Omit the last argument to leave slot B empty. Use `-` for either empty slot, including both slots for BIOS-only operation. BIOS and game signatures are checked, and 512-byte copier headers are removed. Game images must be between 512 KiB and 1 MiB. Separate files are required; combined cartridge dumps are not decoded by this loading path.
+Omit the last argument to leave slot B empty. Use `-` for either empty slot, including both slots for BIOS-only operation. BIOS and game signatures are checked, and 512-byte copier headers are removed. Game images must be between 512 KiB and 1 MiB. This command takes separate files. The ordinary ROM command also loads [combined cartridge images](controllers-and-slots.md#combined-sufami-turbo-images).
 
 | Address window | Device |
 | --- | --- |
@@ -60,4 +60,4 @@ The loader rejects erased headers and headers without a cartridge-space reset ve
 
 Local 1,800-frame checks produced visible output and non-silent audio for Super Mario World and the Contra prototype. The final Contra frame showed gameplay. These checks do not prove complete gameplay, correct sound, or compatibility with commercial games that use the new devices.
 
-SA-1, Super FX, DSP-3/4, S-DD1, SPC7110 and its RTC, Cx4, ST010/011/018, Satellaview, and MSU-1 remain unimplemented. Save states, rewind, and accessory input also remain unfinished. Register and mapper coverage here is not full system compatibility.
+[Controllers and cartridge slots](controllers-and-slots.md) describes mouse, multitap, BS slot boards, and combined Sufami Turbo support. SA-1, Super FX, DSP-3/4, S-DD1, SPC7110 and its RTC, Cx4, ST010/011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states, rewind, Super Scope, Justifiers, and MACS rifle also remain unfinished. Register and mapper coverage here is not full system compatibility.

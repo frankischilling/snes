@@ -35,6 +35,7 @@
 #include <functional>
 
 #include "snes/core/Platform.hpp"
+#include "snes/core/ControllerPorts.hpp"
 
 namespace snes::core {
 
@@ -70,10 +71,14 @@ public:
 
     // Input source
 
-    /// Callback to snapshot input state for a controller port (0 or 1).
-    /// Called once per port at the start of each polling sequence.
-    using InputCallback = std::function<InputState(int port)>;
-    void SetInputCallback(InputCallback cb) { onInput_ = std::move(cb); }
+    /// Snapshot a player's buttons (0 through 7) when the latch rises.
+    using InputCallback = std::function<InputState(int player)>;
+    void SetInputCallback(InputCallback cb) { ports_.SetPadCallback(std::move(cb)); }
+    ControllerPorts& Ports() noexcept { return ports_; }
+    void SetManualLatch(bool high) {
+        manualLatch_ = high;
+        ports_.SetLatch(manualLatch_ || autoLatch_);
+    }
 
     // Output registers ($4218-$421F)
 
@@ -102,16 +107,14 @@ private:
     uint8_t counter_     = 33;      ///< State machine (0..33; 33 = inactive)
     bool div256_         = false;   ///< 256-clock alignment divider
 
-    // Latched 16-bit controller data (captured at counter=0)
-    uint16_t port1Pad_   = 0;
-    uint16_t port2Pad_   = 0;
+    // Controller packets and the two sources of the shared latch line.
+    ControllerPorts ports_;
+    bool manualLatch_ = false;
+    bool autoLatch_ = false;
 
     // Serial data temps (2 bits per port, matching bsnes autoJoypadPort1/2)
     uint8_t port1Data_   = 0;
     uint8_t port2Data_   = 0;
-
-    // Shift position counter (0..15 during read/shift phase)
-    uint8_t shiftPos_    = 0;
 
     // Output registers
     uint16_t joy1_       = 0;
@@ -119,7 +122,6 @@ private:
     uint16_t joy3_       = 0;
     uint16_t joy4_       = 0;
 
-    InputCallback onInput_;
 };
 
 } // namespace snes::core

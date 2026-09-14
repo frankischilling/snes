@@ -44,10 +44,12 @@ public:
 
     explicit SdlInputProvider();
     explicit SdlInputProvider(const KeyMap& keyMap);
-    ~SdlInputProvider() override = default;
+    ~SdlInputProvider() override;
 
     // IInputProvider
     snes::core::InputState Poll(uint64_t frameIndex) override;
+    snes::core::InputState PollController(int player, uint64_t frameIndex) override;
+    snes::core::MouseState PollMouse(int port, uint64_t frameIndex) override;
 
     /// Replace the current key mapping at runtime.
     void SetKeyMap(const KeyMap& keyMap) noexcept { keyMap_ = keyMap; }
@@ -84,6 +86,10 @@ private:
 
     KeyMap keyMap_;
     ScriptRanges scriptedRanges_;
+    std::array<SDL_Gamepad*, 8> gamepads_{};
+    void RefreshGamepads(uint64_t frameIndex);
+    uint64_t lastDeviceFrame_ = uint64_t(-1);
+    float mouseFractionX_ = 0, mouseFractionY_ = 0;
 };
 
 } // namespace snes::frontend
