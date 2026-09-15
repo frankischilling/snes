@@ -2,7 +2,7 @@
 // core/include/snes/core/Dsp.hpp
 // S-DSP audio state and processing interface.
 
-// Dsp.hpp — SNES S-DSP (Sony S-DSP / μPD77C25)
+// Dsp.hpp — SNES S-DSP audio processor
 //
 // The DSP is responsible for all SNES audio output:
 //   - 8 voices, each playing BRR-compressed samples
@@ -16,10 +16,7 @@
 //   - 8 voices × 16 bytes each (with 6 unused per voice)
 //   - Global registers at specific offsets
 //
-// This is a "fast" (batch) DSP — all 8 voices are processed per sample,
-// with register writes taking effect at sample boundaries.
-//
-// Reference: bsnes sfc/dsp/SPC_DSP.h, sfc/dsp/SPC_DSP.cpp
+// Voices, register latches, echo RAM and output share a 32-clock pipeline.
 
 #pragma once
 
@@ -82,6 +79,7 @@ public:
         int      env       = 0;          // Current envelope (0x000-0x7FF)
         int      hiddenEnv = 0;          // For bent-line GAIN mode 7
         int      output    = 0;          // Last voice output (for pitch mod)
+        uint8_t  envSnapshot = 0;        // Envelope sampled before the next update
     };
 
     // Public interface
@@ -91,8 +89,13 @@ public:
     uint8_t Read(uint8_t addr) const;
     void    Write(uint8_t addr, uint8_t data);
 
-    // Generate one stereo sample (~32 kHz).
-    // Call once per 32 DSP clocks (= once per SMP sample period).
+    // One DSP pipeline clock (one normal SMP cycle). RAM and register accesses
+    // occur here, before an SMP bus operation at that clock boundary.
+    void    Tick();
+    unsigned Phase() const noexcept { return phase_; }
+
+    // Advance exactly 32 clocks from the current phase (~32 kHz stereo output).
+    // Convenience for standalone rendering; SMP synchronization calls Tick().
     void    RunSample();
 
     // Set pointer to SMP's 64 KB RAM (DSP reads BRR/directory/echo from here)
@@ -124,7 +127,25 @@ private:
     void decodeBrr(Voice& v, int header, int brrByte1, int brrByte2);
     int  interpolate(const Voice& v) const;
     void runEnvelope(Voice& v, int adsr0, int adsr1, int gain);
-    void processEcho(int mainOut[2], int echoOut[2]);
+    void captureDirectory(unsigned voice);
+    void captureVoiceRegisters(unsigned voice);
+    void capturePitchHigh(unsigned voice);
+    void captureBrrBytes(unsigned voice);
+    void renderVoice(unsigned voice);
+    void prepareVoice(unsigned voice);
+    void decodeAndMixLeft(unsigned voice);
+    void mixVoice(unsigned voice, unsigned channel);
+    void mixRightAndCaptureEnd(unsigned voice);
+    void captureOutput();
+    void publishEndAndCaptureEnv(unsigned voice);
+    void publishOutput(unsigned voice);
+    void publishEnvelope(unsigned voice);
+    void clockGlobalLatches();
+    void clockEcho();
+    void readEcho(unsigned channel);
+    void writeEcho(unsigned channel);
+    int  firTap(unsigned tap, unsigned channel) const;
+    int  mixFinal(unsigned channel) const;
 
     // Counter system (shared rate counter for envelopes/noise)
     void runCounters();
@@ -148,7 +169,7 @@ private:
     // KON buffering
     uint8_t newKon_     = 0;
     uint8_t kon_        = 0;
-    int     everyOther_ = 1;    // Toggles each sample (bsnes starts at 1)
+    int     everyOther_ = 1;    // Toggles at phase 29
 
     // Noise LFSR (15-bit)
     int     noise_      = 0x4000;
@@ -161,6 +182,19 @@ private:
     int     echoHistIdx_ = 0;                   // Current position (0..7)
     int     echoOffset_  = 0;                   // Byte offset in echo buffer
     int     echoLength_  = 0;                   // Echo buffer size in bytes
+
+    // These are shared hardware latches, not one independent set per voice.
+    // Their lifetimes overlap neighboring voices and SMP register/RAM writes.
+    struct Pipeline {
+        uint8_t pitchMod = 0, noiseEnable = 0, echoEnable = 0;
+        uint8_t directoryPage = 0, keyOff = 0, sourceNumber = 0;
+        uint8_t echoPage = 0, echoFlags = 0;
+        uint16_t directoryAddress = 0, nextBrrAddress = 0, echoAddress = 0;
+        int adsr0 = 0, pitch = 0, brrHeader = 0, brrByte = 0;
+        int output = 0, looped = 0;
+        std::array<int, 2> mainMix{}, echoMix{}, filteredEcho{};
+    } pipe_;
+    unsigned phase_ = 0;
 
     // Output buffer
     int16_t* outBuf_         = nullptr;

@@ -19,7 +19,10 @@ namespace {
 unsigned checks = 0;
 void Check(bool value, const char* label) {
     ++checks;
-    if (!value) throw std::runtime_error(label);
+    if (!value) {
+        std::fprintf(stderr, "FAIL: %s\n", label);
+        throw std::runtime_error(label);
+    }
 }
 
 std::vector<uint8_t> Rom(size_t size = 0x100000, uint8_t mode = 0x20, uint8_t type = 0) {
@@ -53,19 +56,19 @@ void DetectionAndReload() {
         Fixture{0x21, 5, 0, EnhancementChip::Dsp1, true},
         Fixture{0x30, 5, 0, EnhancementChip::Dsp1, true},
         Fixture{0x20, 5, 0, EnhancementChip::Dsp2, true},
-        Fixture{0x30, 5, 0xb2, EnhancementChip::Dsp3, false},
-        Fixture{0x30, 3, 0, EnhancementChip::Dsp4, false},
+        Fixture{0x30, 5, 0xb2, EnhancementChip::Dsp3, true},
+        Fixture{0x30, 3, 0, EnhancementChip::Dsp4, true},
         Fixture{0x30, 0x25, 0, EnhancementChip::Obc1, true},
         Fixture{0x35, 0x55, 0, EnhancementChip::Srtc, true},
-        Fixture{0x23, 0x35, 0, EnhancementChip::Sa1, false},
-        Fixture{0x20, 0x15, 0, EnhancementChip::SuperFx, false},
+        Fixture{0x23, 0x35, 0, EnhancementChip::Sa1, true},
+        Fixture{0x20, 0x15, 0, EnhancementChip::SuperFx, true},
         Fixture{0x32, 0x43, 0, EnhancementChip::Sdd1, true},
-        Fixture{0x3a, 0xf5, 0, EnhancementChip::Spc7110, false},
-        Fixture{0x3a, 0xf9, 0, EnhancementChip::Spc7110Rtc, false},
-        Fixture{0x20, 0xf3, 0, EnhancementChip::Cx4, false},
-        Fixture{0x30, 0xf5, 0, EnhancementChip::St018, false},
+        Fixture{0x3a, 0xf5, 0, EnhancementChip::Spc7110, true},
+        Fixture{0x3a, 0xf9, 0, EnhancementChip::Spc7110Rtc, true},
+        Fixture{0x20, 0xf3, 0, EnhancementChip::Cx4, true},
+        Fixture{0x30, 0xf5, 0, EnhancementChip::St018, true},
         Fixture{0x30, 0xf6, 0, EnhancementChip::St010, true}}) {
-        auto bytes = Rom(f.mode == 0x35 ? 0x500000 : 0x100000, f.mode, f.type);
+        auto bytes = Rom(f.mode == 0x35 ? 0x500000 : f.mode == 0x3a ? 0x300000 : 0x100000, f.mode, f.type);
         const size_t header = f.mode == 0x35 ? 0x40ffc0 : f.mode == 0x21 ? 0xffc0 : 0x7fc0;
         bytes[header + 0x1a] = f.maker;
         auto cart = Cartridge::FromRomImage(bytes, nullptr, nullptr, nullptr);

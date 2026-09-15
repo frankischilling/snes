@@ -48,6 +48,16 @@ public:
     /// Total master clocks elapsed
     uint64_t Cycles() const noexcept { return cycles_; }
 
+    // Advance connected hardware after each memory access or internal cycle.
+    // Step() still returns CPU clocks; a caller using this callback must not
+    // advance the same clocks again.
+    void SetClockCallback(std::function<void(uint32_t)> callback) { onClock_ = std::move(callback); }
+    void SetBeforeCycleCallback(std::function<void(uint32_t)> callback) { beforeCycle_ = std::move(callback); }
+
+    // Refresh interrupt inputs at the instruction's sampling point. Returning
+    // false suppresses the current sample while interrupt recognition is locked.
+    void SetInterruptPollCallback(std::function<bool()> callback) { onInterruptPoll_ = std::move(callback); }
+
     // DRAM refresh
 
     /// Apply the 40-master-clock DRAM refresh penalty.
@@ -104,6 +114,9 @@ private:
 
     // ALU step callback (called 5× during DRAM refresh, once per sub-step)
     AluStepCallback onAluStep_;
+    std::function<void(uint32_t)> onClock_;
+    std::function<void(uint32_t)> beforeCycle_;
+    std::function<bool()> onInterruptPoll_;
 };
 
 } // namespace snes::core

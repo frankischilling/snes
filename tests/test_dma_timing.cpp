@@ -37,8 +37,8 @@ void ClockedTransfers() {
     const auto cpuPc = emu->GetCpu()->regs().pc;
     dma.EnableDma(1);
     const uint32_t ownClocks = dma.RunDma();
-    Check(ownClocks == 16 + 512 * 8 && clocks.size() == 512, "DMA own cycle accounting");
-    Check(clocks.front() == 16 && clocks.back() > 4000, "Writes advance through scanlines");
+    Check(ownClocks == 8 + 16 + 512 * 8 + 2 && clocks.size() == 512, "DMA alignment, transfer and resume cycle accounting");
+    Check(clocks.front() == 32 && clocks.back() > 4000, "Writes follow alignment, startup and the first eight-clock read");
     Check(std::is_sorted(clocks.begin(), clocks.end()), "DMA time is monotonic");
     unsigned refreshes = 0;
     for (size_t i = 1; i < clocks.size(); ++i)
@@ -76,6 +76,9 @@ void HdmaInterruptsDma() {
         auto emu = Machine();
         auto& dma = emu->GetDma();
         auto& bus = emu->GetBus();
+        // Let the scanline-zero setup point pass before manually initializing
+        // HDMA; automatic setup is covered separately below.
+        while (emu->GetTiming().HCounter() < 18) emu->GetCpu()->idle();
         std::vector<uint8_t> output;
         bus.Map(0, 0, 0x2110, 0x2110, [](uint32_t, uint8_t b) { return b; },
             [&](uint32_t, uint8_t b) { output.push_back(b); });
@@ -100,6 +103,91 @@ void HdmaInterruptsDma() {
                   "Another channel resumes DMA after HDMA");
         }
     }
+}
+
+void LongDmaAudio() {
+    struct Output final : IAudioOutput {
+        AudioBuffer last;
+        unsigned calls = 0;
+        void Submit(const AudioBuffer& audio) override { last = audio; ++calls; }
+    } output;
+    auto emu = Machine();
+    emu->AttachAudioOutput(&output);
+    auto& dsp = emu->GetDsp();
+    dsp.Write(Dsp::kFlg, 0x3f);
+    dsp.Write(Dsp::kMVolL, 0x7f); dsp.Write(Dsp::kMVolR, 0x7f);
+    dsp.Write(Dsp::kVolL, 0x7f); dsp.Write(Dsp::kVolR, 0x7f);
+    dsp.Write(Dsp::kAdsr0, 0); dsp.Write(Dsp::kGain, 0x7f);
+    dsp.Write(Dsp::kDir, 0x20); dsp.Write(Dsp::kNon, 1); dsp.Write(Dsp::kKon, 1);
+    auto& dma = emu->GetDma();
+    for (unsigned i = 0; i < 8; ++i) {
+        auto& channel = dma.Channel(i);
+        channel.writeControl(8); // Fixed source, A-to-B.
+        channel.sourceBank = 0x7e; channel.sourceAddress = 0;
+        channel.targetAddress = 0x10; channel.transferSize = 0; // 65536 bytes.
+    }
+    dma.EnableDma(0xff);
+    emu->StepFrame();
+    const auto before = emu->GetSmp().CycleCount();
+    // Output occurs at phase 27, followed by one output every 32 SMP clocks.
+    const auto generated = (before + 4) / 32;
+    Check(emu->GetTiming().FrameCount() > 1 && generated > 2048, "A maximal DMA crosses fields and exceeds one audio buffer");
+    Check(output.calls == 1 && output.last.sampleRate == 32000 && output.last.interleavedStereo.size() == generated * 2,
+          "Every DSP sample survives a DMA operation longer than the frame buffer");
+    Check(std::any_of(output.last.interleavedStereo.begin() + 4096, output.last.interleavedStereo.end(),
+                     [](float sample) { return sample != 0.0f; }), "Overflow blocks retain generated audio rather than padding silence");
+    emu->StepFrame();
+    const auto next = (emu->GetSmp().CycleCount() + 4) / 32 - generated;
+    Check(output.calls == 2 && output.last.interleavedStereo.size() == next * 2 && next < 700,
+          "The next frame contains only newly generated samples, with no stale overflow");
+}
+
+void DividerAlignment() {
+    const std::array<uint32_t, 4> expectedDuration{36, 36, 30, 30};
+    for (unsigned phase = 0; phase < 8; phase += 2) {
+        auto bus = std::make_unique<MemoryBus>();
+        DmaController dma;
+        dma.SetBus(bus.get());
+        uint64_t elapsed = phase;
+        uint64_t readAt = 0, writeAt = 0;
+        dma.SetClockCallback([&](uint32_t clocks) { elapsed += clocks; });
+        dma.SetClockQuery([&]() { return elapsed; });
+        bus->Map(0x40, 0x40, 0, 0,
+            [&](uint32_t, uint8_t) { readAt = elapsed; return uint8_t(0x6b); },
+            [](uint32_t, uint8_t) {});
+        bus->Map(0, 0, 0x2110, 0x2110,
+            [](uint32_t, uint8_t value) { return value; },
+            [&](uint32_t, uint8_t value) { Check(value == 0x6b, "DMA carries the sampled byte"); writeAt = elapsed; });
+        auto& channel = dma.Channel(0);
+        channel.writeControl(0); channel.sourceBank = 0x40; channel.sourceAddress = 0;
+        channel.targetAddress = 0x10; channel.transferSize = 1;
+        dma.EnableDma(1);
+        Check(dma.RunDma() == expectedDuration[phase / 2], "DMA returns at the next CPU cycle boundary");
+        Check(elapsed == phase + expectedDuration[phase / 2], "Reported DMA duration matches hardware time");
+        Check(readAt == 28 && writeAt == 32, "Divider alignment puts the read and write on distinct bus phases");
+    }
+}
+
+void TimingBatchInvariance() {
+    std::vector<uint64_t> expected;
+    Timing batched, split;
+    batched.onDramRefresh = [&]() { expected.push_back(batched.MasterClocksElapsed()); };
+    std::vector<uint64_t> actual;
+    split.onDramRefresh = [&]() { actual.push_back(split.MasterClocksElapsed()); };
+    unsigned setups = 0;
+    split.onHdmaSetup = [&]() { Check(split.HCounter() == 12, "Initial HDMA setup follows the divider phase"); ++setups; };
+    batched.Tick(4092);
+    for (unsigned i = 0; i < 4092; ++i) split.Tick(1);
+    Check(expected == std::vector<uint64_t>{538, 1898, 3266}, "DRAM refresh alternates 538/534 on normal scanlines");
+    Check(actual == expected && setups == 1, "Odd clock batches preserve event positions and counts");
+    Check(split.HCounter() == batched.HCounter() && split.VCounter() == batched.VCounter() &&
+          split.MasterClocksElapsed() == batched.MasterClocksElapsed(), "Odd clock batches preserve counters");
+    Timing shortLine;
+    shortLine.Tick(357368 + 240 * 1364);
+    Check(shortLine.VCounter() == 240 && shortLine.HPeriod() == 1360, "Test reaches the odd-field short line");
+    const auto refresh = shortLine.DramRefreshPosition();
+    shortLine.Tick(1360);
+    Check(shortLine.DramRefreshPosition() == refresh, "A short line preserves the refresh divider phase");
 }
 
 struct Video : IVideoOutput {
@@ -133,7 +221,7 @@ void FieldTimingAndPresentation() {
 }
 }
 int main() {
-    try { ClockedTransfers(); PaletteClockUnits(); HdmaInterruptsDma(); FieldTimingAndPresentation(); }
+    try { ClockedTransfers(); PaletteClockUnits(); HdmaInterruptsDma(); LongDmaAudio(); DividerAlignment(); TimingBatchInvariance(); FieldTimingAndPresentation(); }
     catch (const std::exception& e) { std::fprintf(stderr, "%s\n", e.what()); return 1; }
     std::puts("DMA timing, HDMA interruption, and field presentation checks passed");
 }

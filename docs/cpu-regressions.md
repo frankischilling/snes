@@ -14,11 +14,19 @@ In emulation mode, interrupt entry wraps each stack write within $0100-$01FF. Te
 
 PHD, PLD, PEA, PEI, PER, JSL, RTL, and indexed indirect JSR can cross the stack-page boundary during an instruction. In emulation mode, they restore the stack pointer's high byte to $01 before the next instruction. Tests verify the crossing, final pointer, and address used by a following PHA. Native-mode cases retain the full pointer.
 
+## Bus and interrupt sampling
+
+Every CPU read, write, and internal cycle advances the connected hardware. A word I/O instruction can observe different horizontal positions for its two bytes. Tests place an HBlank edge between operand fetches and a register read, and an NMI edge inside an instruction.
+
+Instruction handlers sample IRQ before their final cycle. CLI, SEI, REP, SEP, and PLP can change the interrupt mask after that sample. A latched IRQ keeps the sampled decision instead of testing the new mask again at entry. The regression cases check both delayed unmasking and an interrupt that was already accepted before the instruction masks it.
+
+An earlier bus operation's interrupt lock clears before the following access; a new `$4200` write retains its lock until then. Regressions enable NMI during VBlank through both byte and word stores. They check that the sample between a word store's bytes stays suppressed while the following instruction accepts the NMI without an extra delay. `snes_bus_scheduling_tests` also checks DMA startup and resumption at CPU cycle boundaries.
+
 ## Run the checks
 
 ```powershell
 cmake --build --preset build-release
-ctest --test-dir out/build/release -R snes_cpu_ --output-on-failure
+ctest --test-dir out/build/release -R 'snes_(cpu|bus|dma)' --output-on-failure
 ```
 
 These tests cover the cases above, not every opcode or interrupt-timing interaction.

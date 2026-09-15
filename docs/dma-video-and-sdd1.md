@@ -1,6 +1,6 @@
 # S-DD1, DMA timing, and video output
 
-S-DD1 cartridges now load with a decompressor, bank registers, and board-specific SRAM mapping. DMA advances the machine after each transferred byte. Video output retains the 512 dots of high-resolution modes and both interlaced fields.
+S-DD1 cartridges load with a decompressor, bank registers, and board-specific SRAM mapping. CPU, DMA, and HDMA accesses advance connected hardware during their bus cycles. Video output retains the 512 dots of high-resolution modes and both interlaced fields.
 
 ## S-DD1 cartridge support
 
@@ -24,11 +24,11 @@ Expanded, pre-decompressed images of at least 8 MiB use a separate mapper. Detec
 
 ## DMA and field timing
 
-Writing $420B schedules DMA after the current CPU instruction. Each transfer byte advances timing and audio before the next byte. WRAM refresh pauses DMA, and HDMA can run between bytes. HDMA on the same channel cancels its general DMA transfer; another channel's HDMA lets the transfer resume afterward. Source offsets wrap within their original bank.
+Writing $420B queues DMA. The controller allows one CPU bus cycle before taking the bus, aligns to its eight-clock divider, and charges global and per-channel startup intervals. Each byte has two four-clock read phases followed by the destination write. HDMA table reads and data transfers use the same clock path. WRAM refresh pauses transfers, and HDMA can interrupt general DMA between bytes. HDMA on the same channel cancels that general DMA transfer; another channel's HDMA lets it resume. Source offsets wrap within their original bank.
 
-The scheduler drains refresh and HDMA clocks until no penalty remains. It also passes SETINI's interlace state to the timing system. `StepFrame` targets the next field boundary rather than adding a fixed frame duration to its current position, which previously accumulated partial scanlines and missed interlace's extra line.
+The scheduler returns DMA control at a CPU cycle boundary and samples interrupts through the CPU's normal instruction boundary logic. HDMA initializes on scanline zero at a divider-dependent position. DRAM refresh follows that divider, alternating positions 538 and 534 on ordinary scanlines and preserving its phase across a short line. Odd-sized clock batches retain their unfinished half tick. SETINI controls field timing, and `StepFrame` targets the next field boundary.
 
-CPU accesses still advance timing at instruction boundaries. General DMA uses whole-byte intervals, HDMA runs in batches, and the refresh position remains fixed. This is not a cycle-exact bus model. A DMA operation that crosses a field boundary can also make `StepFrame` return after that boundary.
+CPU register accesses now see hardware events reached during earlier accesses of the same instruction. This does not make the whole machine cycle exact: the PPU still samples one scanline, coprocessor synchronization has device-specific limits, and the scheduler drains a refresh penalty at the end of the current clock interval. An instruction or DMA operation crossing a field boundary can make `StepFrame` return after that boundary.
 
 ## Video output
 
@@ -40,10 +40,10 @@ Interlace writes alternating row parities and retains the preceding field. Norma
 
 The decoder passed 3,072 local comparison cases spanning all 16 header modes, 32 deterministic input streams, and six output lengths from one byte through 64 KiB. Committed tests retain output digests for every header mode and check bank boundaries, register aliases, save round trips, all eight DMA channels and modes, enable masks, reverse DMA, and expanded images.
 
-Timing tests check refresh stalls, HDMA interruption on the same and different channels, APU progress during DMA, bank wrapping, and NTSC/PAL interlaced field lengths. PPU tests check alternating main/sub dots, mixed resolutions, blanking, field retention, and returning to normal dimensions.
+Timing tests check divider alignment, separate source/destination timestamps, startup and CPU resumption, refresh stalls, HDMA interruption on the same and different channels, APU progress, bank wrapping, and NTSC/PAL interlaced field lengths. CPU bus tests place HBlank and NMI edges inside instructions. PPU tests check alternating main/sub dots, mixed resolutions, blanking, field retention, and returning to normal dimensions.
 
-All 15 Release test suites passed. The S-DD1, DMA timing, and PPU regression suites also passed an AddressSanitizer build with release runtime libraries and debug symbols.
+The full test command and the current cartridge validation scope are listed in [original hardware support](original-hardware.md). Tests keep the transfer data-path checks separate from integration checks that advance the complete machine.
 
 Both supplied games completed 1,800-frame runs with visible video and non-silent audio. The final Contra prototype frame showed gameplay. These runs do not validate S-DD1 games, later levels, or sound accuracy. No game images are included in the tests.
 
-Hardware support remains incomplete. SA-1, Super FX/FX2, DSP-3/4, Cx4, SPC7110 and its RTC, ST011/018, and the full BS-X broadcast system remain unimplemented. [Light guns and raster memory](light-guns-and-raster.md) describes the gun protocols and scanline VRAM/OAM snapshots added afterward. Existing CPU, PPU, and audio implementations need further accuracy work: multiply/divide results are immediate, and the renderer samples state once per scanline. S-DD1 decoding does not model the chip's internal input FIFO timing or hardware underflow behavior.
+[Original hardware support](original-hardware.md) describes the cartridge processors, command engines, broadcast hardware, and their remaining gaps. [Light guns and raster memory](light-guns-and-raster.md) covers gun protocols and scanline VRAM/OAM snapshots. CPU multiply/divide results remain immediate, and the renderer samples state once per scanline. S-DD1 decoding does not model its internal input FIFO timing or hardware underflow behavior.

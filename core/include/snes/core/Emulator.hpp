@@ -90,6 +90,12 @@ public:
     bool LoadBroadcastCartridgeFromFiles(const std::string& base, const std::string& pack,
                                          std::string* error = nullptr);
     bool LoadMemoryPack(std::span<const uint8_t> data) { return cartridge_ && cartridge_->LoadMemoryPack(data); }
+    bool LoadBroadcastStream(uint16_t channel, uint8_t sequence, std::span<const uint8_t> data) {
+        return cartridge_ && cartridge_->LoadBroadcastStream(channel, sequence, data);
+    }
+    bool SetBroadcastTimeSource(std::function<BroadcastTime()> source) {
+        return cartridge_ && cartridge_->SetBroadcastTimeSource(std::move(source));
+    }
 
     const Cartridge* LoadedCartridge() const noexcept;
     void LoadSram(std::span<const uint8_t> data) { if (cartridge_) cartridge_->LoadSram(data); }
@@ -97,11 +103,11 @@ public:
         if (cartridge_) cartridge_->LoadSlotSram(slot, data);
     }
     std::vector<uint8_t> SaveRtc() {
-        if (!srtc_) return {};
+        if (!srtc_) return cartridge_ ? cartridge_->SaveRtc() : std::vector<uint8_t>{};
         const auto data = srtc_->Save();
         return {data.begin(), data.end()};
     }
-    bool LoadRtc(std::span<const uint8_t> data) { return srtc_ && srtc_->Load(data); }
+    bool LoadRtc(std::span<const uint8_t> data) { return srtc_ ? srtc_->Load(data) : cartridge_ && cartridge_->LoadRtc(data); }
 
     FrameStepResult StepFrame(const FrameStepOptions& options = {});
 
@@ -127,6 +133,8 @@ private:
     /// Called from LoadCartridge() once the cartridge is ready.
     void InitSubsystems();
     void AdvanceClocks(uint32_t clocks);
+    void ServicePendingHdma();
+    void BeginCpuCycle(uint32_t clocks);
 
     void EmitTrace(const TraceEvent& event) const;
 
@@ -162,10 +170,15 @@ private:
     // Audio output buffer (stereo interleaved int16_t, enough for 1+ frames)
     static constexpr int kAudioBufSamples = 2048;
     std::array<int16_t, kAudioBufSamples * 2> audioBuf_{};
+    std::vector<int16_t> audioOverflow_;
+    bool collectingAudio_ = false;
 
-    // Clock accumulator for DRAM-refresh / DMA / HDMA penalties.
-    // Set inside Timing callbacks; drained after each CPU Step().
+    // Refresh stalls raised by Timing callbacks and drained after a bus interval.
     uint32_t pendingExtraClocks_ = 0;
+    bool pendingHdmaSetup_ = false;
+    bool pendingHdmaRun_ = false;
+    bool servicingHdma_ = false;
+    bool dmaArmed_ = false;
 
 };
 

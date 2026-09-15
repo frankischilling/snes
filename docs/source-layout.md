@@ -5,7 +5,7 @@ The core implementation is grouped by the hardware area it models:
 | Folder | Contents |
 | --- | --- |
 | `core/src/audio` | S-DSP, SMP, SPC700, DSP-1, DSP-2, and the cartridge clock |
-| `core/src/cartridge` | ROM headers, mappers, save RAM, BS slot flash, S-DD1 decompression, and ST010 commands |
+| `core/src/cartridge` | ROM headers, mappers, save RAM, SA-1, Super FX, DSP-3/4, Cx4, S-DD1, SPC7110/RTC, ST commands, and BS slot/controller hardware |
 | `core/src/cpu` | 65816 processor and SNES CPU wrapper |
 | `core/src/dma` | General DMA and HDMA |
 | `core/src/io` | CPU I/O registers, interrupts, controller protocols, and automatic polling |

@@ -109,6 +109,7 @@ void DmaDecompression() {
     auto& bus = emu->GetBus();
     auto& dma = emu->GetDma();
     dma.SetClockCallback({}); // Isolate data-path checks from video timing.
+    dma.SetClockQuery({});
     std::vector<std::pair<uint32_t, uint8_t>> writes;
     bus.Map(0, 0, 0x2100, 0x21ff, [](uint32_t, uint8_t) { return uint8_t(0x69); },
         [&](uint32_t p, uint8_t b) { writes.emplace_back(p, b); });

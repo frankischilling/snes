@@ -28,6 +28,10 @@ void Timing::Reset() {
 
     masterClocksElapsed_ = 0;
     frameCount_ = 0;
+    dramRefreshPosition_ = kDramRefreshPos;
+    hdmaSetupPosition_ = 12;
+    hdmaSetupFired_ = false;
+    halfClockPending_ = false;
 
     dramRefreshFired_ = false;
     hblankFired_      = false;
@@ -54,22 +58,33 @@ void Timing::Tick(uint32_t clocks) {
     // driven design means we need to check events at each position.  Since
     // a scanline is only 682 ticks (1364/2) this is perfectly tractable.
 
+    if (halfClockPending_ && clocks != 0) {
+        halfClockPending_ = false;
+        tickOnce(1);
+        --clocks;
+    }
     while (clocks >= 2) {
         tickOnce();
         clocks -= 2;
     }
-    // If an odd clock is left over (shouldn't happen with proper bus timing,
-    // since all SNES bus operations are even-clocked), just absorb it.
+    // Preserve a half tick so splitting an interval into odd batches does not
+    // change event positions or lose clocks from the horizontal counter.
     if (clocks == 1) {
-        masterClocksElapsed_ += 1;
+        ++masterClocksElapsed_;
+        ++hcounter_;
+        halfClockPending_ = true;
     }
 }
 
-void Timing::tickOnce() {
-    masterClocksElapsed_ += 2;
-    hcounter_ += 2;
-
+void Timing::tickOnce(uint8_t clocks) {
+    masterClocksElapsed_ += clocks;
+    hcounter_ += clocks;
     // Per-dot event checks (only fire once per scanline per event)
+
+    if (!hdmaSetupFired_ && vcounter_ == 0 && hcounter_ >= hdmaSetupPosition_) {
+        hdmaSetupFired_ = true;
+        if (onHdmaSetup) onHdmaSetup();
+    }
 
     // NMI assertion: fires at H=kNmiHPos on the first VBlank scanline
     if (!nmiFired_ && vcounter_ == vdisp_ && hcounter_ >= kNmiHPos) {
@@ -87,7 +102,7 @@ void Timing::tickOnce() {
     }
 
     // DRAM refresh
-    if (!dramRefreshFired_ && hcounter_ >= kDramRefreshPos) {
+    if (!dramRefreshFired_ && hcounter_ >= dramRefreshPosition_) {
         dramRefreshFired_ = true;
         if (onDramRefresh) onDramRefresh();
     }
@@ -147,6 +162,8 @@ void Timing::tickScanline() {
         vcounter_ = 0;
         field_ = !field_;
         frameCount_++;
+        hdmaSetupPosition_ = uint16_t(12 + (masterClocksElapsed_ & 7));
+        hdmaSetupFired_ = false;
 
         // Recalculate vperiod for the new frame.
         vperiod_ = (region_ == Region::NTSC) ? kScanlinesNTSC : kScanlinesPAL;
@@ -157,6 +174,7 @@ void Timing::tickScanline() {
 
     // Update H period for the new scanline (short/long line logic).
     updateHPeriod();
+    dramRefreshPosition_ = uint16_t(538 - (masterClocksElapsed_ & 7));
 
     // Reset per-scanline event flags.
     dramRefreshFired_ = false;

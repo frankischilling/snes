@@ -3,6 +3,22 @@ add_library(snes_core
   src/cartridge/BroadcastCartridge.cpp
   src/cartridge/Sdd1.cpp
   src/cartridge/St010.cpp
+  src/cartridge/Spc7110.cpp
+  src/cartridge/Spc7110Decoder.cpp
+  src/cartridge/Spc7110Rtc.cpp
+  src/cartridge/Sa1.cpp
+  src/cartridge/Sa1Arithmetic.cpp
+  src/cartridge/Sa1Dma.cpp
+  src/cartridge/SuperFx.cpp
+  src/cartridge/Cx4.cpp
+  src/cartridge/SetaProtocol.cpp
+  src/cartridge/Bsx.cpp
+  src/cartridge/Dsp3.cpp
+  src/cartridge/Dsp3Decode.cpp
+  src/cartridge/Dsp3Path.cpp
+  src/cartridge/Dsp4.cpp
+  src/cartridge/Dsp4Projection.cpp
+  src/cartridge/Dsp4Sprites.cpp
   src/cpu/Cpu65816.cpp
   src/cpu/Processor65816.cpp
   src/cpu/SnesCpu.cpp

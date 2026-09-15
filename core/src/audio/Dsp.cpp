@@ -4,11 +4,7 @@
 
 // Dsp.cpp — SNES S-DSP Implementation
 //
-// Implements the complete SNES audio DSP in "fast" (batch) mode:
-// all 8 voices processed per sample, then echo, then mix.
-// Register writes take effect at sample boundaries.
-//
-// Reference: bsnes sfc/dsp/SPC_DSP.cpp
+// Shared voice latches and echo RAM accesses advance on individual DSP clocks.
 
 #include "snes/core/Dsp.hpp"
 #include <cstring>
@@ -120,6 +116,8 @@ void Dsp::Power() {
     endxBuf_ = envxBuf_ = outxBuf_ = 0;
     samplesWritten_ = 0;
     echoLength_ = 0;
+    pipe_ = {};
+    std::memset(echoHist_, 0, sizeof(echoHist_));
 
     SoftReset();
 }
@@ -131,8 +129,7 @@ void Dsp::SoftReset() {
     everyOther_  = 1;
     echoOffset_  = 0;
     counter_     = 0;
-
-    std::memset(echoHist_, 0, sizeof(echoHist_));
+    phase_       = 0;
 }
 
 // Register access
@@ -142,7 +139,8 @@ uint8_t Dsp::Read(uint8_t addr) const {
 }
 
 void Dsp::Write(uint8_t addr, uint8_t data) {
-    regs_[addr & 0x7F] = data;
+    addr &= 0x7F;
+    regs_[addr] = data;
 
     switch (addr & 0x0F) {
     case kEnvX:  // ENVX writes are buffered and overwritten by DSP
@@ -214,7 +212,7 @@ void Dsp::ramWriteWord(uint16_t addr, int16_t value) {
 
 void Dsp::decodeBrr(Voice& v, int header, int brrByte1, int brrByte2) {
     // Arrange 4 nybbles in 0xABCD order
-    int nybbles = brrByte1 * 0x100 + brrByte2;
+    const unsigned nybbles = unsigned(brrByte1) * 0x100 + unsigned(brrByte2);
 
     // Write to next 4 samples in circular buffer
     int* pos = &v.buf[v.bufPos];
@@ -224,14 +222,13 @@ void Dsp::decodeBrr(Voice& v, int header, int brrByte1, int brrByte2) {
     int const shift  = header >> 4;
     int const filter = header & 0x0C;
 
-    for (int i = 0; i < 4; i++, nybbles <<= 4) {
+    for (int i = 0; i < 4; i++) {
         // Extract top nybble, sign-extend
-        int s = static_cast<int16_t>(nybbles) >> 12;
+        int s = int((nybbles >> (12 - i * 4)) & 15);
+        if (s & 8) s -= 16;
 
         // Apply shift
-        s = (s << shift) >> 1;
-        if (shift >= 0x0D)
-            s = (s >> 25) << 11;  // Invalid shift: clamp to sign
+        s = shift <= 12 ? (s * (1 << shift)) >> 1 : s < 0 ? -2048 : 0;
 
         // IIR filter using previous 2 samples
         int const p1 = pos[BrrBufSize - 1];
@@ -362,260 +359,252 @@ void Dsp::runEnvelope(Voice& v, int adsr0, int adsr1, int gain) {
         v.env = env;
 }
 
-// Echo processing — FIR filter, feedback, write, mix, output
+// Voice pipeline operations. Adjacent voices use the same latches at staggered
+// phases, so sampling a register early must not read it again at a later phase.
 
-void Dsp::processEcho(int mainOut[2], int echoOut[2]) {
-    // echo_22: advance history, read left echo, start FIR
-    echoHistIdx_ = (echoHistIdx_ + 1) % EchoHistSize;
+void Dsp::captureDirectory(unsigned voice) {
+    pipe_.directoryAddress = uint16_t(unsigned(pipe_.directoryPage) * 256 + unsigned(pipe_.sourceNumber) * 4);
+    pipe_.sourceNumber = vreg(voice, kSrcn);
+}
 
-    uint16_t echoAddr = static_cast<uint16_t>(
-        (reg(kEsa) * 0x100 + echoOffset_) & 0xFFFF);
+void Dsp::captureVoiceRegisters(unsigned voice) {
+    const uint16_t entry = uint16_t(pipe_.directoryAddress + (voices_[voice].konDelay ? 0 : 2));
+    pipe_.nextBrrAddress = ramReadWord(entry);
+    pipe_.adsr0 = vreg(voice, kAdsr0);
+    pipe_.pitch = vreg(voice, kPitchL);
+}
 
-    // Read echo buffer into history (both copies for wrap)
-    for (int ch = 0; ch < 2; ch++) {
-        int16_t s = static_cast<int16_t>(ramReadWord(
-            static_cast<uint16_t>(echoAddr + ch * 2)));
-        echoHist_[echoHistIdx_][ch] = s >> 1;
-        echoHist_[echoHistIdx_ + EchoHistSize][ch] = s >> 1;
+void Dsp::capturePitchHigh(unsigned voice) {
+    pipe_.pitch += (vreg(voice, kPitchH) & 0x3f) * 256;
+}
+
+void Dsp::captureBrrBytes(unsigned voice) {
+    const auto& v = voices_[voice];
+    pipe_.brrByte = ramRead(uint16_t(v.brrAddr + v.brrOffset));
+    pipe_.brrHeader = ramRead(uint16_t(v.brrAddr));
+}
+
+void Dsp::renderVoice(unsigned voice) {
+    auto& v = voices_[voice];
+    const unsigned bit = 1u << voice;
+    if (pipe_.pitchMod & bit) pipe_.pitch += ((pipe_.output >> 5) * pipe_.pitch) >> 10;
+    if (v.konDelay) {
+        if (v.konDelay == 5) {
+            v.brrAddr = pipe_.nextBrrAddress;
+            v.brrOffset = 1;
+            v.bufPos = 0;
+            pipe_.brrHeader = 0;
+        }
+        v.env = v.hiddenEnv = 0;
+        --v.konDelay;
+        v.interpPos = (v.konDelay & 3) ? 0x4000 : 0;
+        pipe_.pitch = 0;
     }
 
-    // echo_22 through echo_25: 8-tap FIR filter
-    // Compute FIR exactly as bsnes does (with int16_t truncation between taps 6 & 7)
-    auto calcFir = [&](int i, int ch) -> int {
-        return (echoHist_[echoHistIdx_ + i + 1][ch]
-                * static_cast<int8_t>(reg(0x0F + i * 0x10))) >> 6;
-    };
+    const int sample = (pipe_.noiseEnable & bit) ? int(int16_t(noise_ * 2)) : interpolate(v);
+    pipe_.output = ((sample * v.env) >> 11) & ~1;
+    v.output = pipe_.output;
+    v.envSnapshot = uint8_t(v.env >> 4);
 
-    int echoIn[2];
-    for (int ch = 0; ch < 2; ch++) {
-        int sum = calcFir(0, ch);                                   // echo_22
-        sum += calcFir(1, ch) + calcFir(2, ch);                    // echo_23
-        sum += calcFir(3, ch) + calcFir(4, ch) + calcFir(5, ch);  // echo_24
-        sum += calcFir(6, ch);                                      // echo_25
-        sum  = static_cast<int16_t>(sum);                           // Truncate
-        sum += static_cast<int16_t>(calcFir(7, ch));               // Last tap
-        sum  = clamp16(sum);
-        echoIn[ch] = sum & ~1;
+    if ((reg(kFlg) & 0x80) || (pipe_.brrHeader & 3) == 1) {
+        v.envMode = Release;
+        v.env = 0;
     }
-
-    // echo_26: mix output + echo feedback
-    int finalOut[2];
-    for (int ch = 0; ch < 2; ch++) {
-        // Main output: (mainOut * MVOL >> 7) + (echoIn * EVOL >> 7)
-        int8_t mvol = static_cast<int8_t>(reg(ch == 0 ? kMVolL : kMVolR));
-        int8_t evol = static_cast<int8_t>(reg(ch == 0 ? kEVolL : kEVolR));
-        int out = static_cast<int16_t>((mainOut[ch] * mvol) >> 7)
-                + static_cast<int16_t>((echoIn[ch]  * evol) >> 7);
-        finalOut[ch] = clamp16(out);
+    if (everyOther_) {
+        if (pipe_.keyOff & bit) v.envMode = Release;
+        if (kon_ & bit) { v.konDelay = 5; v.envMode = Attack; }
     }
+    if (!v.konDelay) runEnvelope(v, pipe_.adsr0, vreg(voice, kAdsr1), vreg(voice, kGain));
+}
 
-    // Echo feedback
-    int8_t efb = static_cast<int8_t>(reg(kEfb));
-    for (int ch = 0; ch < 2; ch++) {
-        int sum = echoOut[ch]
-                + static_cast<int16_t>((echoIn[ch] * efb) >> 7);
-        sum = clamp16(sum);
-        echoOut[ch] = sum & ~1;
-    }
+void Dsp::prepareVoice(unsigned voice) {
+    capturePitchHigh(voice);
+    captureBrrBytes(voice);
+    renderVoice(voice);
+}
 
-    // echo_27: apply global mute
-    if (reg(kFlg) & 0x40) {
-        finalOut[0] = 0;
-        finalOut[1] = 0;
-    }
+void Dsp::mixVoice(unsigned voice, unsigned channel) {
+    const int scaled = (pipe_.output * int8_t(vreg(voice, kVolL + channel))) >> 7;
+    pipe_.mainMix[channel] = clamp16(pipe_.mainMix[channel] + scaled);
+    if (pipe_.echoEnable & (1u << voice)) pipe_.echoMix[channel] = clamp16(pipe_.echoMix[channel] + scaled);
+}
 
-    // echo_29: advance echo offset, write echo
-    if (!echoOffset_)
-        echoLength_ = (reg(kEdl) & 0x0F) * 0x800;
-
-    echoOffset_ += 4;
-    if (echoOffset_ >= echoLength_)
-        echoOffset_ = 0;
-
-    // Write echo to buffer (unless write-protected: FLG bit 5)
-    if (!(reg(kFlg) & 0x20)) {
-        for (int ch = 0; ch < 2; ch++) {
-            ramWriteWord(static_cast<uint16_t>(echoAddr + ch * 2),
-                         static_cast<int16_t>(echoOut[ch]));
+void Dsp::decodeAndMixLeft(unsigned voice) {
+    auto& v = voices_[voice];
+    pipe_.looped = 0;
+    if (v.interpPos >= 0x4000) {
+        decodeBrr(v, pipe_.brrHeader, pipe_.brrByte, ramRead(uint16_t(v.brrAddr + v.brrOffset + 1)));
+        v.brrOffset += 2;
+        if (v.brrOffset == BrrBlockSize) {
+            v.brrAddr = (v.brrAddr + BrrBlockSize) & 0xffff;
+            if (pipe_.brrHeader & 1) {
+                v.brrAddr = pipe_.nextBrrAddress;
+                pipe_.looped = 1 << voice;
+            }
+            v.brrOffset = 1;
         }
     }
+    const int advanced = (v.interpPos & 0x3fff) + pipe_.pitch;
+    v.interpPos = advanced > 0x7fff ? 0x7fff : advanced;
+    mixVoice(voice, 0);
+}
 
-    // Write to output buffer
-    if (outBuf_ && samplesWritten_ < outBufSize_) {
-        outBuf_[samplesWritten_ * 2 + 0] = static_cast<int16_t>(finalOut[0]);
-        outBuf_[samplesWritten_ * 2 + 1] = static_cast<int16_t>(finalOut[1]);
-        samplesWritten_++;
+void Dsp::mixRightAndCaptureEnd(unsigned voice) {
+    mixVoice(voice, 1);
+    endxBuf_ = uint8_t(reg(kEndx) | pipe_.looped);
+    if (voices_[voice].konDelay == 5) endxBuf_ &= uint8_t(~(1u << voice));
+}
+
+void Dsp::captureOutput() { outxBuf_ = uint8_t(pipe_.output >> 8); }
+void Dsp::publishEndAndCaptureEnv(unsigned voice) {
+    regs_[kEndx] = endxBuf_;
+    envxBuf_ = voices_[voice].envSnapshot;
+}
+void Dsp::publishOutput(unsigned voice) { regs_[voice * 16 + kOutX] = outxBuf_; }
+void Dsp::publishEnvelope(unsigned voice) { regs_[voice * 16 + kEnvX] = envxBuf_; }
+
+void Dsp::clockGlobalLatches() {
+    switch (phase_) {
+    case 27: pipe_.pitchMod = reg(kPmon) & 0xfe; break;
+    case 28:
+        pipe_.noiseEnable = reg(kNon);
+        pipe_.echoEnable = reg(kEon);
+        pipe_.directoryPage = reg(kDir);
+        break;
+    case 29:
+        everyOther_ ^= 1;
+        if (everyOther_) newKon_ &= uint8_t(~kon_);
+        break;
+    case 30:
+        if (everyOther_) { kon_ = newKon_; pipe_.keyOff = reg(kKoff); }
+        runCounters();
+        if (readCounter(reg(kFlg) & 31)) {
+            const int feedback = (noise_ ^ (noise_ >> 1)) & 1;
+            noise_ = (noise_ >> 1) | (feedback << 14);
+        }
+        break;
     }
 }
 
-// RunSample — process all 8 voices + echo + output for one stereo sample
+void Dsp::readEcho(unsigned channel) {
+    const int sample = int16_t(ramReadWord(uint16_t(pipe_.echoAddress + channel * 2)));
+    echoHist_[echoHistIdx_][channel] = sample >> 1;
+    echoHist_[echoHistIdx_ + EchoHistSize][channel] = sample >> 1;
+}
+
+void Dsp::writeEcho(unsigned channel) {
+    if (!(pipe_.echoFlags & 0x20)) ramWriteWord(uint16_t(pipe_.echoAddress + channel * 2), int16_t(pipe_.echoMix[channel]));
+    pipe_.echoMix[channel] = 0;
+}
+
+int Dsp::firTap(unsigned tap, unsigned channel) const {
+    return (echoHist_[echoHistIdx_ + tap + 1][channel] * int8_t(reg(0x0f + tap * 16))) >> 6;
+}
+
+int Dsp::mixFinal(unsigned channel) const {
+    const int dry = int16_t((pipe_.mainMix[channel] * int8_t(reg(kMVolL + channel * 16))) >> 7);
+    const int wet = int16_t((pipe_.filteredEcho[channel] * int8_t(reg(kEVolL + channel * 16))) >> 7);
+    return clamp16(dry + wet);
+}
+
+void Dsp::clockEcho() {
+    switch (phase_) {
+    case 22:
+        echoHistIdx_ = (echoHistIdx_ + 1) % EchoHistSize;
+        pipe_.echoAddress = uint16_t(unsigned(pipe_.echoPage) * 256 + echoOffset_);
+        readEcho(0);
+        for (unsigned ch = 0; ch < 2; ++ch) pipe_.filteredEcho[ch] = firTap(0, ch);
+        break;
+    case 23:
+        for (unsigned ch = 0; ch < 2; ++ch) pipe_.filteredEcho[ch] += firTap(1, ch) + firTap(2, ch);
+        readEcho(1);
+        break;
+    case 24:
+        for (unsigned ch = 0; ch < 2; ++ch) pipe_.filteredEcho[ch] += firTap(3, ch) + firTap(4, ch) + firTap(5, ch);
+        break;
+    case 25:
+        for (unsigned ch = 0; ch < 2; ++ch) {
+            const int first = int16_t(pipe_.filteredEcho[ch] + firTap(6, ch));
+            pipe_.filteredEcho[ch] = clamp16(first + int16_t(firTap(7, ch))) & ~1;
+        }
+        break;
+    case 26:
+        pipe_.mainMix[0] = mixFinal(0);
+        for (unsigned ch = 0; ch < 2; ++ch) {
+            const int feedback = int16_t((pipe_.filteredEcho[ch] * int8_t(reg(kEfb))) >> 7);
+            pipe_.echoMix[ch] = clamp16(pipe_.echoMix[ch] + feedback) & ~1;
+        }
+        break;
+    case 27: {
+        const int left = (reg(kFlg) & 0x40) ? 0 : pipe_.mainMix[0];
+        const int right = (reg(kFlg) & 0x40) ? 0 : mixFinal(1);
+        pipe_.mainMix = {};
+        if (outBuf_ && samplesWritten_ < outBufSize_) {
+            outBuf_[samplesWritten_ * 2] = int16_t(left);
+            outBuf_[samplesWritten_ * 2 + 1] = int16_t(right);
+            ++samplesWritten_;
+        }
+        break;
+    }
+    case 28: pipe_.echoFlags = reg(kFlg); break;
+    case 29:
+        pipe_.echoPage = reg(kEsa);
+        if (!echoOffset_) echoLength_ = (reg(kEdl) & 15) * 0x800;
+        echoOffset_ += 4;
+        if (echoOffset_ >= echoLength_) echoOffset_ = 0;
+        writeEcho(0);
+        pipe_.echoFlags = reg(kFlg);
+        break;
+    case 30: writeEcho(1); break;
+    }
+}
+
+void Dsp::Tick() {
+    // Five regularly spaced groups overlap three neighboring voices. The last
+    // groups leave room for echo; voice zero's preparation crosses that interval.
+    if (phase_ >= 2 && phase_ <= 16) {
+        const unsigned group = (phase_ - 2) / 3;
+        switch ((phase_ - 2) % 3) {
+        case 0:
+            publishEndAndCaptureEnv(group);
+            captureDirectory(group + 3);
+            decodeAndMixLeft(group + 1);
+            break;
+        case 1:
+            publishOutput(group);
+            mixRightAndCaptureEnd(group + 1);
+            captureVoiceRegisters(group + 2);
+            break;
+        case 2:
+            publishEnvelope(group);
+            captureOutput();
+            prepareVoice(group + 2);
+            break;
+        }
+    } else {
+        switch (phase_) {
+        case 0: mixRightAndCaptureEnd(0); captureVoiceRegisters(1); break;
+        case 1: captureOutput(); prepareVoice(1); break;
+        case 17: captureDirectory(0); publishEndAndCaptureEnv(5); decodeAndMixLeft(6); break;
+        case 18: publishOutput(5); mixRightAndCaptureEnd(6); captureVoiceRegisters(7); break;
+        case 19: publishEnvelope(5); captureOutput(); prepareVoice(7); break;
+        case 20: captureDirectory(1); publishEndAndCaptureEnv(6); decodeAndMixLeft(7); break;
+        case 21: publishOutput(6); mixRightAndCaptureEnd(7); captureVoiceRegisters(0); break;
+        case 22: capturePitchHigh(0); publishEnvelope(6); captureOutput(); break;
+        case 23: publishEndAndCaptureEnv(7); break;
+        case 24: publishOutput(7); break;
+        case 25: captureBrrBytes(0); publishEnvelope(7); break;
+        case 30: clockGlobalLatches(); renderVoice(0); break;
+        case 31: decodeAndMixLeft(0); captureDirectory(2); break;
+        default: clockGlobalLatches(); break;
+        }
+        clockEcho();
+    }
+    phase_ = (phase_ + 1) & 31;
+}
 
 void Dsp::RunSample() {
-    // misc_27-28: read shared registers
-    int tPmon = reg(kPmon) & 0xFE;  // Voice 0 cannot be pitch-modulated
-    int tNon  = reg(kNon);
-    int tEon  = reg(kEon);
-    int tDir  = reg(kDir);
-
-    // misc_29: toggle every-other-sample flag
-    if ((everyOther_ ^= 1) != 0)
-        newKon_ &= ~kon_;
-
-    // misc_30: latch KON/KOFF, run counters, noise
-    int tKoff = 0;
-    if (everyOther_) {
-        kon_  = newKon_;
-        tKoff = reg(kKoff);
-    }
-
-    runCounters();
-
-    // Noise LFSR update
-    if (readCounter(reg(kFlg) & 0x1F)) {
-        int feedback = (noise_ << 13) ^ (noise_ << 14);
-        noise_ = (feedback & 0x4000) ^ (noise_ >> 1);
-    }
-
-    // Process all 8 voices
-    int mainOut[2] = {0, 0};
-    int echoOut[2] = {0, 0};
-
-    for (int vi = 0; vi < VoiceCount; vi++) {
-        Voice& v = voices_[vi];
-        int vbit = 1 << vi;
-
-        // V1/V2: read source directory, pitch, adsr0
-        int tSrcn   = vreg(vi, kSrcn);
-        int tDirAddr = (tDir * 0x100 + tSrcn * 4) & 0xFFFF;
-
-        // Read sample start/loop address
-        uint16_t entryAddr = static_cast<uint16_t>(tDirAddr);
-        if (!v.konDelay)
-            entryAddr += 2;  // Use loop address when not starting
-        int tBrrNextAddr = ramReadWord(entryAddr);
-
-        int tAdsr0 = vreg(vi, kAdsr0);
-        int tPitch = vreg(vi, kPitchL);
-
-        // V3a: complete pitch
-        tPitch += (vreg(vi, kPitchH) & 0x3F) << 8;
-
-        // V3b: read BRR header and data byte
-        int tBrrHeader = ramRead(static_cast<uint16_t>(v.brrAddr));
-        int tBrrByte   = ramRead(static_cast<uint16_t>((v.brrAddr + v.brrOffset) & 0xFFFF));
-
-        // V3c: main voice processing
-
-        // Pitch modulation (using previous voice's output)
-        if (tPmon & vbit)
-            tPitch += ((voices_[vi > 0 ? vi - 1 : 0].output >> 5) * tPitch) >> 10;
-
-        // KON delay processing
-        if (v.konDelay) {
-            if (v.konDelay == 5) {
-                v.brrAddr   = tBrrNextAddr;
-                v.brrOffset = 1;
-                v.bufPos    = 0;
-                tBrrHeader  = 0;  // Header ignored on first sample
-            }
-
-            v.env       = 0;
-            v.hiddenEnv = 0;
-            v.interpPos = 0;
-            if (--v.konDelay & 3)
-                v.interpPos = 0x4000;
-
-            tPitch = 0;
-        }
-
-        // Gaussian interpolation
-        int output = interpolate(v);
-
-        // Noise substitution
-        if (tNon & vbit)
-            output = static_cast<int16_t>(noise_ * 2);
-
-        // Apply envelope to output
-        int tOutput = (output * v.env) >> 11 & ~1;
-        uint8_t envxOut = static_cast<uint8_t>(v.env >> 4);
-
-        // Immediate silence on end-of-sample or soft reset
-        if ((reg(kFlg) & 0x80) || (tBrrHeader & 3) == 1) {
-            v.envMode = Release;
-            v.env     = 0;
-        }
-
-        // KON/KOFF (on every other sample)
-        if (everyOther_) {
-            if (tKoff & vbit)
-                v.envMode = Release;
-            if (kon_ & vbit) {
-                v.konDelay = 5;
-                v.envMode  = Attack;
-            }
-        }
-
-        // Run envelope for next sample
-        if (!v.konDelay) {
-            runEnvelope(v, tAdsr0, vreg(vi, kAdsr1), vreg(vi, kGain));
-        }
-
-        // V4: BRR decode + advance interpPos + output left
-        int tLooped = 0;
-        if (v.interpPos >= 0x4000) {
-            int brrByte2 = ramRead(
-                static_cast<uint16_t>((v.brrAddr + v.brrOffset + 1) & 0xFFFF));
-            decodeBrr(v, tBrrHeader, tBrrByte, brrByte2);
-
-            v.brrOffset += 2;
-            if (v.brrOffset >= BrrBlockSize) {
-                // Advance to next BRR block
-                v.brrAddr = (v.brrAddr + BrrBlockSize) & 0xFFFF;
-                if (tBrrHeader & 1) {
-                    // Loop/end: jump to loop address
-                    v.brrAddr = tBrrNextAddr;
-                    tLooped   = vbit;
-                }
-                v.brrOffset = 1;
-            }
-        }
-
-        // Advance interpolation position
-        v.interpPos = (v.interpPos & 0x3FFF) + tPitch;
-        if (v.interpPos > 0x7FFF)
-            v.interpPos = 0x7FFF;
-
-        // Voice output: apply volume and accumulate to main/echo sums
-        for (int ch = 0; ch < 2; ch++) {
-            int amp = (tOutput * static_cast<int8_t>(vreg(vi, kVolL + ch))) >> 7;
-            mainOut[ch] += amp;
-            mainOut[ch] = clamp16(mainOut[ch]);
-
-            if (tEon & vbit) {
-                echoOut[ch] += amp;
-                echoOut[ch] = clamp16(echoOut[ch]);
-            }
-        }
-
-        // V5-V9: update registers
-        // ENDX
-        int endx = regs_[kEndx] | tLooped;
-        if (v.konDelay == 5)
-            endx &= ~vbit;
-        regs_[kEndx] = static_cast<uint8_t>(endx);
-
-        // OUTX (signed 8-bit: output >> 8)
-        regs_[vi * 0x10 + kOutX] = static_cast<uint8_t>(tOutput >> 8);
-
-        // ENVX
-        regs_[vi * 0x10 + kEnvX] = envxOut;
-
-        // Store output for pitch modulation of next voice
-        v.output = tOutput;
-    }
-
-    // Echo processing + mixing + output
-    processEcho(mainOut, echoOut);
+    for (unsigned clocks = 0; clocks < 32; ++clocks) Tick();
 }
 
 } // namespace snes::core

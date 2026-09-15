@@ -75,8 +75,7 @@ public:
     /// HBlank begins at this H counter value (dot 274 × 4 = 1096).
     static constexpr uint16_t kHBlankStart = 1096;
 
-    /// DRAM refresh position (H counter) — bsnes v2: 530 + 8 - dmaCounter.
-    /// We use a fixed value of 538 (simplification for scanline-level accuracy).
+    /// Initial DRAM refresh position; later lines follow the DMA divider.
     static constexpr uint16_t kDramRefreshPos = 538;
 
     /// DRAM refresh penalty in master clocks (40 clocks = 5 × 8-cycle slots).
@@ -115,6 +114,8 @@ public:
 
     /// Current horizontal position (0 .. hPeriod-1), in master clocks.
     uint16_t HCounter() const noexcept { return hcounter_; }
+    uint16_t DramRefreshPosition() const noexcept { return dramRefreshPosition_; }
+    uint16_t HdmaSetupPosition() const noexcept { return hdmaSetupPosition_; }
 
     /// Horizontal dot number for the latched PPU beam counter.
     uint16_t HDot() const noexcept;
@@ -157,6 +158,9 @@ public:
 
     /// Called at V=0, H=0 (start of a new frame).
     std::function<void()> onFrameBegin;
+
+    /// Initialize HDMA during scanline zero after the divider-dependent delay.
+    std::function<void()> onHdmaSetup;
 
     /// Called when V counter enters a new scanline (H wraps to 0).
     /// Parameter: new V counter value.
@@ -206,7 +210,7 @@ public:
     uint16_t HPeriodForScanline(uint16_t scanline) const;
 
 private:
-    void tickOnce();          // Advance by 2 master clocks (smallest unit)
+    void tickOnce(uint8_t clocks = 2);
     void tickScanline();      // Called when H counter wraps
     void updateHPeriod();     // Recompute hperiod_ for the current scanline
 
@@ -222,6 +226,10 @@ private:
 
     uint64_t masterClocksElapsed_ = 0;
     uint64_t frameCount_ = 0;
+    uint16_t dramRefreshPosition_ = kDramRefreshPos;
+    uint16_t hdmaSetupPosition_ = 12;
+    bool hdmaSetupFired_ = false;
+    bool halfClockPending_ = false;
 
     // Per-scanline event flags (reset on each new scanline)
     bool dramRefreshFired_ = false;

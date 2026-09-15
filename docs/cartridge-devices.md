@@ -8,7 +8,7 @@ DSP-2 cartridges use data ports at $20-$3F/$A0-$BF:$6000-$6FFF and $8000-$BFFF. 
 
 The implementation handles packed-pixel conversion to SNES bitplanes, transparent color selection, bitmap overlays, pixel reversal, unsigned 16-bit multiplication, and fixed-point bitmap scaling. Parameter RAM survives between commands. Empty bitmap requests complete without leaving the parser waiting for a payload. This defines recovery for empty requests; it does not reproduce undocumented hardware behavior for them.
 
-DSP-1 remains available through its existing board windows. DSP-3 and DSP-4 are detected and rejected because their command processors are not implemented.
+DSP-1 remains available through its existing board windows. DSP-3 and DSP-4 have separate command engines and narrower cartridge windows, described in [original hardware support](original-hardware.md).
 
 ## OBC1
 
@@ -62,4 +62,4 @@ Local 1,800-frame checks produced visible output and non-silent audio for Super 
 
 [Controllers and cartridge slots](controllers-and-slots.md) describes mouse, multitap, BS slot boards, and combined Sufami Turbo support. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) covers decompression, bank switching, expanded ROM layouts, and video changes.
 
-SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. Save states and rewind also remain unfinished. Register and mapper coverage here is not full system compatibility.
+[Original hardware support](original-hardware.md) covers SA-1, Super FX/FX2, DSP-3/4, Cx4, SPC7110 and its RTC, and BS-X. ST011 has a limited packet interface and ST018 has startup handshakes; neither has its internal program processor. Register and mapper coverage does not establish full system compatibility.

@@ -1,14 +1,71 @@
 #include "snes/core/Cartridge.hpp"
 
 #include <algorithm>
+#include <ctime>
 
 namespace snes::core {
+
+void Cartridge::InitializeBroadcast(std::span<const uint8_t> pack) {
+    bsx_.reset();
+    header_.sramSizeShift = 5;
+    sram_.assign(0x8000, 0);
+    if (pack.empty()) memoryPack_.assign(0x100000, 0xff);
+    else memoryPack_.assign(pack.begin(), pack.end());
+    memoryPackReadOnly_ = memoryPack_[0xff00] == 'M' && memoryPack_[0xff02] == 'P' &&
+                         (memoryPack_[0xff06] & 0xf0) == 0x70;
+    bsx_ = std::make_unique<Bsx>(rom_, memoryPack_, sram_);
+    bsx_->SetTimeSource([]() {
+        BroadcastTime time;
+        const std::time_t now = std::time(nullptr);
+        std::tm local{};
+#ifdef _WIN32
+        if (localtime_s(&local, &now) != 0) return time;
+#else
+        if (!localtime_r(&now, &local)) return time;
+#endif
+        time.year = uint16_t(local.tm_year + 1900);
+        time.month = uint8_t(local.tm_mon + 1); time.day = uint8_t(local.tm_mday);
+        time.weekday = uint8_t(local.tm_wday + 1);
+        time.hour = uint8_t(local.tm_hour); time.minute = uint8_t(local.tm_min); time.second = uint8_t(local.tm_sec);
+        return time;
+    });
+}
+
+bool Cartridge::LoadBroadcastStream(uint16_t channel, uint8_t sequence, std::span<const uint8_t> data) {
+    return bsx_ && bsx_->LoadStream(channel, sequence, data);
+}
+
+bool Cartridge::SetBroadcastTimeSource(std::function<BroadcastTime()> source) {
+    if (!bsx_) return false;
+    bsx_->SetTimeSource(std::move(source));
+    return true;
+}
 
 std::optional<Cartridge> Cartridge::FromBroadcastCartridge(
     std::span<const uint8_t> base, std::span<const uint8_t> pack, std::string* error) {
     auto cart = FromRomImage(base, nullptr, nullptr, error);
     if (!cart) return std::nullopt;
     const auto& header = cart->header_;
+    if (header.mapping == MappingType::Bsx) {
+        auto normalizedPack = RemoveCopierHeader(pack, nullptr);
+        if (!normalizedPack.empty() && normalizedPack.size() != 0x100000 && normalizedPack.size() != 0x200000) {
+            if (error) *error = "BS-X memory pack must be 1 or 2 MiB";
+            return std::nullopt;
+        }
+        cart->InitializeBroadcast(normalizedPack);
+        return cart;
+    }
+    if (header.mapping == MappingType::BroadcastSa1) {
+        auto expansion = RemoveCopierHeader(pack, nullptr);
+        if (!expansion.empty() && expansion.size() != 0x80000) {
+            if (error) *error = "SA-1 slot expansion must be 512 KiB";
+            return std::nullopt;
+        }
+        cart->memoryPack_ = std::move(expansion);
+        cart->memoryPackReadOnly_ = true;
+        cart->sa1_->SetExpansionRom(cart->memoryPack_);
+        return cart;
+    }
     const bool lo = header.mapping == MappingType::LoRom || header.mapping == MappingType::LoRom24Mbit;
     if ((!lo && header.mapping != MappingType::HiRom) || header.maker != 0x33 ||
         cart->rom_[header.headerOffset - 14] != 'Z' || cart->rom_[header.headerOffset - 11] == ' ' ||
@@ -39,6 +96,7 @@ bool Cartridge::LoadMemoryPack(std::span<const uint8_t> data) {
     std::copy(data.begin(), data.end(), memoryPack_.begin());
     flashCommand_ = 0;
     flashProgram_ = flashVendor_ = flashExtendedStatus_ = flashStatus_ = false;
+    if (bsx_) bsx_->Reset();
     return true;
 }
 

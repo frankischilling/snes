@@ -5,6 +5,15 @@
 #pragma once
 
 #include "snes/core/St010.hpp"
+#include "snes/core/Spc7110.hpp"
+#include "snes/core/Sa1.hpp"
+#include "snes/core/SuperFx.hpp"
+#include "snes/core/Cx4.hpp"
+#include "snes/core/SetaProtocol.hpp"
+#include "snes/core/Bsx.hpp"
+#include "snes/core/Dsp3.hpp"
+#include "snes/core/Dsp4.hpp"
+#include <memory>
 
 #include <cstddef>
 #include <array>
@@ -31,7 +40,13 @@ enum class MappingType {
     BroadcastHiRom,
     Sdd1,
     DecompressedSdd1,
-    St010
+    St010,
+    Spc7110,
+    Sa1,
+    SuperFx,
+    St011,
+    BroadcastSa1,
+    Bsx
 };
 
 const char* MappingName(MappingType mapping) noexcept;
@@ -118,6 +133,9 @@ public:
     void EndDma(unsigned channel);
 
     uint32_t AccessCycles(uint32_t cpuAddress) const noexcept;
+    void AdvanceHardware(uint32_t masterClocks);
+    void SetPal(bool pal);
+    bool CpuIrqPending() const noexcept;
 
     std::span<const uint8_t> RomData() const noexcept;
     std::span<const uint8_t> SramData() const noexcept;
@@ -126,9 +144,14 @@ public:
     void LoadSlotSram(unsigned slot, std::span<const uint8_t> data);
     std::span<const uint8_t> MemoryPackData() const noexcept;
     bool LoadMemoryPack(std::span<const uint8_t> data);
+    bool LoadBroadcastStream(uint16_t channel, uint8_t sequence, std::span<const uint8_t> data);
+    bool SetBroadcastTimeSource(std::function<BroadcastTime()> source);
+    std::vector<uint8_t> SaveRtc() { return spc7110_ ? spc7110_->SaveRtc() : std::vector<uint8_t>{}; }
+    bool LoadRtc(std::span<const uint8_t> data) { return spc7110_ && spc7110_->LoadRtc(data); }
 
 private:
     static std::optional<RomHeader> ParseHeader(std::span<const uint8_t> rom);
+    void InitializeBroadcast(std::span<const uint8_t> pack = {});
 
     static std::vector<uint8_t> RemoveCopierHeader(std::span<const uint8_t> rom,
                                                    bool* removed);
@@ -162,6 +185,15 @@ private:
     uint8_t flashCommand_ = 0;
     std::array<uint8_t, 8> sdd1Registers_{0, 0, 0, 0, 0, 1, 2, 3};
     St010 st010_;
+    std::unique_ptr<Spc7110> spc7110_;
+    std::unique_ptr<Sa1> sa1_;
+    std::unique_ptr<SuperFx> superFx_;
+    std::unique_ptr<Cx4> cx4_;
+    std::unique_ptr<St011> st011_;
+    std::unique_ptr<St018> st018_;
+    std::unique_ptr<Bsx> bsx_;
+    std::unique_ptr<Dsp3> dsp3_;
+    std::unique_ptr<Dsp4> dsp4_;
 };
 
 } // namespace snes::core

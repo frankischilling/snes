@@ -394,7 +394,9 @@ void IndirectHdmaTermination() {
             Check("HDMA terminator table address", ch.hdmaAddress,
                   laterChannel ? 0x1006 : 0x1005);
             Check("HDMA terminator cycle count", cycles,
-                  afterTransfer ? (laterChannel ? 56 : 32) : (laterChannel ? 40 : 24));
+                  // Includes divider alignment and a return to the six-clock
+                  // CPU cycle; the run cases begin after the initial setup.
+                  afterTransfer ? (laterChannel ? 60 : 42) : (laterChannel ? 54 : 36));
             Check("HDMA terminator disables transfers", ch.hdmaDoTransfer, false);
         }
     }
