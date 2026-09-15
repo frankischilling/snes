@@ -160,10 +160,7 @@ void Ppu::RenderFrame() {
 // RenderLine — the core per-scanline pipeline
 
 void Ppu::RenderLine(Line& line) {
-    std::vector<const RasterEvent*> events;
-    for (const auto& event : rasterEvents_) {
-        if (event.line == line.y) events.push_back(&event);
-    }
+    const auto& events = rasterEvents_[line.y];
 
     if (events.empty()) {
         RenderLineSpan(line, line.io, 0, 256);
@@ -173,14 +170,14 @@ void Ppu::RenderLine(Line& line) {
     const IO snapshot = line.io;
     IO state = snapshot;
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
-        ApplyRasterEvent(state, **it, false);
+        ApplyRasterEvent(state, *it, false);
     }
 
     int x = 0;
-    for (const auto* event : events) {
-        const int next = std::clamp<int>(event->x, x, 256);
+    for (const auto& event : events) {
+        const int next = std::clamp<int>(event.x, x, 256);
         if (next > x) RenderLineSpan(line, state, x, next);
-        ApplyRasterEvent(state, *event, true);
+        ApplyRasterEvent(state, event, true);
         x = next;
     }
     if (x < 256) RenderLineSpan(line, state, x, 256);
@@ -423,11 +420,16 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
         // Offset-per-tile (modes 2, 4, 6)
         if (offsetPerTile) {
             uint32_t validBit = 0x2000 << source;
-            uint32_t offsetX = static_cast<uint32_t>(x) + (hscroll & 7);
-            if (offsetX >= 8) {
+            // Offset entries cover eight logical dots, including in Mode 6
+            // where each dot contains two source pixels. Keep the lookup and
+            // replacement scroll in the renderer's source-pixel coordinates.
+            const uint32_t offsetWidth = 8u << static_cast<uint32_t>(hires);
+            const uint32_t offsetX = static_cast<uint32_t>(x) + (hscroll & (offsetWidth - 1));
+            if (offsetX >= offsetWidth) {
+                const uint32_t lookupX = (offsetX - offsetWidth) +
+                    ((line.io.bg3.hoffset & ~7u) << static_cast<uint32_t>(hires));
                 uint32_t hLookup = GetTile(line, line.io.bg3,
-                    (offsetX - 8) + (line.io.bg3.hoffset & ~7u),
-                    line.io.bg3.voffset + 0);
+                    lookupX, line.io.bg3.voffset);
 
                 if (line.io.bgMode == 4) {
                     // Mode 4: single BG3 word, bit 15 → H or V
@@ -440,10 +442,9 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
                 } else {
                     // Modes 2/6: separate H+V lookups
                     uint32_t vLookup = GetTile(line, line.io.bg3,
-                        (offsetX - 8) + (line.io.bg3.hoffset & ~7u),
-                        line.io.bg3.voffset + 8);
+                        lookupX, line.io.bg3.voffset + 8);
                     if (hLookup & validBit)
-                        hoffset2 = offsetX + (hLookup & ~7u);
+                        hoffset2 = offsetX + ((hLookup & ~7u) << static_cast<uint32_t>(hires));
                     if (vLookup & validBit)
                         voffset2 = y + vLookup;
                 }
@@ -507,9 +508,11 @@ void Ppu::RenderBackground(Line& line, const Background& bg, uint8_t source) {
             }
 
             // Mosaic
-            if (bg.mosaicEnable && line.io.mosaic.size > 1) {
+            if (bg.mosaicEnable && (hires || line.io.mosaic.size > 1)) {
                 if (mosaicCounter == 0) {
-                    mosaicCounter = line.io.mosaic.size;
+                    // Hires mosaic selects the even source sample for both
+                    // screens, even at size one, and measures blocks in dots.
+                    mosaicCounter = line.io.mosaic.size << static_cast<int>(hires);
                     mosaicTransparent = (color == 0);
                     if (!mosaicTransparent) {
                         if (!directColorMode) {

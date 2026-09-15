@@ -172,6 +172,8 @@ private:
     std::array<int16_t, kAudioBufSamples * 2> audioBuf_{};
     std::vector<int16_t> audioOverflow_;
     bool collectingAudio_ = false;
+    AudioBuffer audioOutputBuffer_;
+    VideoFrame videoOutputFrame_;
 
     // Refresh stalls raised by Timing callbacks and drained after a bus interval.
     uint32_t pendingExtraClocks_ = 0;

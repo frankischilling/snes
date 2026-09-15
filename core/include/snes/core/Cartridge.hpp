@@ -151,12 +151,13 @@ public:
 
 private:
     static std::optional<RomHeader> ParseHeader(std::span<const uint8_t> rom);
+    static std::optional<RomHeader> ParseHeaderAt(std::span<const uint8_t> rom, size_t offset);
     void InitializeBroadcast(std::span<const uint8_t> pack = {});
 
     static std::vector<uint8_t> RemoveCopierHeader(std::span<const uint8_t> rom,
                                                    bool* removed);
-    static bool LooksLikeInterleavedHiRom(std::span<const uint8_t> rom);
-    static std::vector<uint8_t> DeinterleaveHiRom(std::span<const uint8_t> rom);
+    static std::optional<RomHeader> NormalizeRomLayout(std::vector<uint8_t>& rom, bool& deinterleaved);
+    static std::vector<uint8_t> DeinterleaveRom(std::span<const uint8_t> rom);
 
     std::optional<size_t> ResolveRomOffset(uint32_t cpuAddress) const;
     std::optional<size_t> ResolveSramOffset(uint32_t cpuAddress) const;

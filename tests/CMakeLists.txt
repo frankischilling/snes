@@ -117,6 +117,16 @@ add_test(NAME snes_dsp_phase_tests COMMAND snes_dsp_phase_tests)
 
 add_executable(snes_sdl_audio_tests test_sdl_audio.cpp ../frontend/src/SdlAudioOutput.cpp)
 
+add_executable(snes_frame_pacing_tests test_frame_pacing.cpp)
+target_include_directories(snes_frame_pacing_tests PRIVATE ../frontend/src)
+target_link_libraries(snes_frame_pacing_tests PRIVATE snes_core)
+add_test(NAME snes_frame_pacing_tests COMMAND snes_frame_pacing_tests)
+
+add_executable(snes_sdl_video_tests test_sdl_video.cpp ../frontend/src/SdlVideoOutput.cpp)
+target_include_directories(snes_sdl_video_tests PRIVATE ../frontend/src)
+target_link_libraries(snes_sdl_video_tests PRIVATE snes_core SDL3::SDL3)
+add_test(NAME snes_sdl_video_tests COMMAND snes_sdl_video_tests)
+
 add_executable(snes_save_ram_tests test_save_ram.cpp ../frontend/src/SaveRamFile.cpp)
 target_include_directories(snes_save_ram_tests PRIVATE ../frontend/src)
 target_link_libraries(snes_save_ram_tests PRIVATE snes_core SDL3::SDL3)

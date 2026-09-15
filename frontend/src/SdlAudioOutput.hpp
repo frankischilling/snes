@@ -58,6 +58,9 @@ public:
     /// The frame loop should wait while enough audio is already queued.
     bool NeedsSamples() const;
 
+    bool IsPlaying() const noexcept { return playing_; }
+    double QueuedMilliseconds() const;
+
 private:
     void StartIfReady();
 

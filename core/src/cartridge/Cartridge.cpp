@@ -41,6 +41,7 @@ size_t HeaderSramSize(uint8_t shift) {
 }
 
 MappingType MappingFromModeByte(uint8_t mapMode) {
+    if ((mapMode & 0xf0) != 0x20 && (mapMode & 0xf0) != 0x30) return MappingType::Unknown;
     switch (mapMode & 0x0F) {
     case 0x00:
         return MappingType::LoRom;
@@ -157,6 +158,12 @@ EnhancementChip DetectChip(const RomHeader& header) {
     }
 }
 
+bool HasDedicatedRomMapper(EnhancementChip chip) {
+    return chip == EnhancementChip::SuperFx || chip == EnhancementChip::Sa1 ||
+           chip == EnhancementChip::Sdd1 || chip == EnhancementChip::Spc7110 ||
+           chip == EnhancementChip::Spc7110Rtc;
+}
+
 bool HasSignature(std::span<const uint8_t> bytes, size_t offset, std::string_view signature) {
     return offset <= bytes.size() && signature.size() <= bytes.size() - offset &&
         std::equal(signature.begin(), signature.end(), bytes.begin() + offset);
@@ -259,12 +266,7 @@ std::optional<Cartridge> Cartridge::FromRomImage(std::span<const uint8_t> romIma
     }
 
     bool deinterleaved = false;
-    if (LooksLikeInterleavedHiRom(normalized)) {
-        normalized = DeinterleaveHiRom(normalized);
-        deinterleaved = true;
-    }
-
-    auto header = ParseHeader(normalized);
+    auto header = NormalizeRomLayout(normalized, deinterleaved);
     if (!header.has_value()) {
         if (error != nullptr) {
             *error = "Unable to parse SNES header from ROM image";
@@ -574,79 +576,66 @@ void Cartridge::LoadSlotSram(unsigned slot, std::span<const uint8_t> data) {
 
 std::optional<RomHeader> Cartridge::ParseHeader(std::span<const uint8_t> rom) {
     std::optional<RomHeader> best;
-
     for (const auto base : kHeaderOffsets) {
-        if (base + 0x40 > rom.size()) {
-            continue;
-        }
-        const auto bytes = rom.subspan(base, 64);
-        if (std::all_of(bytes.begin(), bytes.end(), [](uint8_t byte) { return byte == 0xff; })) continue;
-
-        RomHeader candidate;
-        candidate.headerOffset = base;
-        candidate.title = TrimTitle(rom.subspan(base, 21));
-
-        const auto mapMode = rom[base + 0x15];
-        candidate.mapMode = mapMode;
-        candidate.maker = rom[base + 0x1a];
-        candidate.mapping = MappingFromModeByte(mapMode);
-        candidate.speed = SpeedFromModeByte(mapMode);
-        candidate.cartridgeType = rom[base + 0x16];
-        candidate.romSizeShift = rom[base + 0x17];
-        candidate.sramSizeShift = rom[base + 0x18];
-        candidate.country = rom[base + 0x19];
-        candidate.version = rom[base + 0x1B];
-        candidate.checksumComplement = Read16(rom, base + 0x1C);
-        candidate.checksum = Read16(rom, base + 0x1E);
-        candidate.resetVector = Read16(rom, base + 0x3C);
-        candidate.chip = DetectChip(candidate);
-
-        // A bootable cartridge must supply a reset vector in cartridge space.
-        if (candidate.resetVector < 0x8000) continue;
-
-        uint32_t score = 0;
-        if (candidate.mapping != MappingType::Unknown) {
-            score += 4;
-        }
-        if (candidate.resetVector >= 0x8000) {
-            score += 4;
-        }
-        if ((candidate.checksum ^ candidate.checksumComplement) == 0xFFFF) {
-            score += 6;
-        }
-        if (IsMostlyPrintable(rom.subspan(base, 21))) {
-            score += 2;
-        }
-        if (HeaderRomSize(candidate.romSizeShift) > 0) {
-            score += 1;
-        }
-
-        candidate.score = score;
-
-        // Prototype headers may omit the mode byte. The header's physical
-        // position still identifies the layout used by the reset vector.
-        if (candidate.mapping == MappingType::Unknown) {
-            candidate.mapping = base == 0x7fc0 ? MappingType::LoRom :
-                                base == 0xffc0 ? MappingType::HiRom :
-                                base == 0x407fc0 ? MappingType::ExLoRom : MappingType::ExHiRom;
-            candidate.speed = RomSpeed::Slow;
-        }
-        if (base == 0x407fc0 && candidate.mapping == MappingType::LoRom)
-            candidate.mapping = MappingType::ExLoRom;
-        if (base == 0x40ffc0 && candidate.mapping == MappingType::HiRom)
-            candidate.mapping = MappingType::ExHiRom;
-
-        if (!best.has_value() || candidate.score > best->score ||
-            (base >= 0x400000 && candidate.score == best->score)) {
-            best = candidate;
+        // Dedicated bank controllers keep their header in the first ROM region.
+        // Their graphics/data banks are not ordinary extended-ROM boot chips.
+        if (base >= 0x400000 && best && HasDedicatedRomMapper(best->chip)) break;
+        auto candidate = ParseHeaderAt(rom, base);
+        if (candidate && (!best || candidate->score > best->score ||
+            (base >= 0x400000 && candidate->score == best->score))) {
+            best = std::move(candidate);
         }
     }
+    return best;
+}
 
-    if (best.has_value() && best->score >= 4) {
-        return best;
+std::optional<RomHeader> Cartridge::ParseHeaderAt(std::span<const uint8_t> rom, size_t base) {
+    if (base > rom.size() || rom.size() - base < 64) return std::nullopt;
+    const auto bytes = rom.subspan(base, 64);
+    if (std::all_of(bytes.begin(), bytes.end(), [](uint8_t byte) { return byte == 0xff; })) return std::nullopt;
+
+    RomHeader candidate;
+    candidate.headerOffset = base;
+    candidate.title = TrimTitle(rom.subspan(base, 21));
+
+    const auto mapMode = rom[base + 0x15];
+    candidate.mapMode = mapMode;
+    candidate.maker = rom[base + 0x1a];
+    candidate.mapping = MappingFromModeByte(mapMode);
+    candidate.speed = SpeedFromModeByte(mapMode);
+    candidate.cartridgeType = rom[base + 0x16];
+    candidate.romSizeShift = rom[base + 0x17];
+    candidate.sramSizeShift = rom[base + 0x18];
+    candidate.country = rom[base + 0x19];
+    candidate.version = rom[base + 0x1B];
+    candidate.checksumComplement = Read16(rom, base + 0x1C);
+    candidate.checksum = Read16(rom, base + 0x1E);
+    candidate.resetVector = Read16(rom, base + 0x3C);
+    candidate.chip = DetectChip(candidate);
+
+    // A bootable cartridge must supply a reset vector in cartridge space.
+    if (candidate.resetVector < 0x8000) return std::nullopt;
+
+    uint32_t score = 4;
+    if (candidate.mapping != MappingType::Unknown || HasDedicatedRomMapper(candidate.chip)) score += 4;
+    if ((candidate.checksum ^ candidate.checksumComplement) == 0xFFFF) score += 6;
+    if (IsMostlyPrintable(rom.subspan(base, 21))) score += 2;
+    if (HeaderRomSize(candidate.romSizeShift) > 0) score += 1;
+    candidate.score = score;
+
+    // Prototype headers may omit the mode byte. The header's physical
+    // position still identifies the layout used by the reset vector.
+    if (candidate.mapping == MappingType::Unknown) {
+        candidate.mapping = base == 0x7fc0 ? MappingType::LoRom :
+                            base == 0xffc0 ? MappingType::HiRom :
+                            base == 0x407fc0 ? MappingType::ExLoRom : MappingType::ExHiRom;
+        candidate.speed = RomSpeed::Slow;
     }
-
-    return std::nullopt;
+    if (base == 0x407fc0 && candidate.mapping == MappingType::LoRom)
+        candidate.mapping = MappingType::ExLoRom;
+    if (base == 0x40ffc0 && candidate.mapping == MappingType::HiRom)
+        candidate.mapping = MappingType::ExHiRom;
+    return candidate;
 }
 
 std::vector<uint8_t> Cartridge::RemoveCopierHeader(std::span<const uint8_t> rom, bool* removed) {
@@ -665,27 +654,78 @@ std::vector<uint8_t> Cartridge::RemoveCopierHeader(std::span<const uint8_t> rom,
     return std::vector<uint8_t>(rom.begin(), rom.end());
 }
 
-bool Cartridge::LooksLikeInterleavedHiRom(std::span<const uint8_t> rom) {
-    if (rom.size() < 0x10000 || (rom.size() % 0x10000) != 0) {
-        return false;
+std::optional<RomHeader> Cartridge::NormalizeRomLayout(std::vector<uint8_t>& rom, bool& deinterleaved) {
+    auto header = ParseHeader(rom);
+    if (header && MappingFromModeByte(header->mapMode) == MappingType::ExHiRom &&
+        (header->headerOffset == 0x7fc0 || header->headerOffset == 0x407fc0) &&
+        rom.size() > 0x400000 && rom.size() <= 0x800000 && rom.size() % 0x10000 == 0) {
+        bool nativeHeader = false;
+        for (size_t offset : {0xffc0u, 0x40ffc0u}) {
+            auto candidate = ParseHeaderAt(rom, offset);
+            if (!candidate || candidate->score < header->score) continue;
+            const auto mapping = MappingFromModeByte(candidate->mapMode);
+            if (mapping == MappingType::HiRom || mapping == MappingType::ExHiRom) {
+                header = std::move(candidate);
+                nativeHeader = true;
+            }
+        }
+        if (!nativeHeader) {
+            // Each physical chip has its own odd/even bank permutation. The
+            // displaced mode-$25/$35 header identifies which chip boots.
+            const size_t bootSize = rom.size() - 0x400000;
+            const bool bootFirst = header->headerOffset == 0x7fc0;
+            const auto image = std::span<const uint8_t>(rom);
+            auto candidate = DeinterleaveRom(image.subspan(bootFirst ? bootSize : 0, 0x400000));
+            const auto boot = DeinterleaveRom(image.subspan(bootFirst ? 0 : 0x400000, bootSize));
+            candidate.insert(candidate.end(), boot.begin(), boot.end());
+            auto candidateHeader = ParseHeader(candidate);
+            if (candidateHeader && candidateHeader->mapping == MappingType::ExHiRom &&
+                candidateHeader->headerOffset == 0x40ffc0 && candidateHeader->mapMode == header->mapMode &&
+                candidateHeader->score >= header->score) {
+                rom = std::move(candidate);
+                header = std::move(candidateHeader);
+                deinterleaved = true;
+            }
+        }
+    }
+    const bool interleavedHi = header && header->headerOffset == 0x7fc0 &&
+                              MappingFromModeByte(header->mapMode) == MappingType::HiRom;
+    const bool interleavedLo = header && header->headerOffset == 0xffc0 &&
+                              MappingFromModeByte(header->mapMode) == MappingType::LoRom;
+    if ((!header || interleavedHi || interleavedLo) && !rom.empty() && rom.size() % 0x10000 == 0) {
+        auto candidate = DeinterleaveRom(rom);
+        auto candidateHeader = ParseHeader(candidate);
+        const auto mapping = interleavedHi ? MappingType::HiRom : MappingType::LoRom;
+        const size_t offset = interleavedHi ? 0xffc0 : 0x7fc0;
+        // Accept a permutation only when it restores a matching reset header.
+        // This also recovers LoROM headers displaced beyond both usual offsets.
+        if (candidateHeader && candidateHeader->headerOffset == offset && candidateHeader->mapping == mapping &&
+            (MappingFromModeByte(candidateHeader->mapMode) != MappingType::Unknown ||
+             HasDedicatedRomMapper(candidateHeader->chip)) &&
+            (!header || (candidateHeader->mapMode == header->mapMode && candidateHeader->score >= header->score))) {
+            rom = std::move(candidate);
+            header = std::move(candidateHeader);
+            deinterleaved = true;
+        }
     }
 
-    if (rom.size() < 0xFFC0 + 0x40 || rom.size() < 0x7FC0 + 0x40) {
-        return false;
+    if (header && header->headerOffset < 0x400000 && !HasDedicatedRomMapper(header->chip) &&
+        rom.size() > 0x400000 && rom.size() <= 0x800000 && rom.size() % 0x8000 == 0) {
+        // Extended dumps may store the boot chip before the four-MiB data chip.
+        // Keep one canonical order so reset vectors, bank mirrors and CRC agree.
+        auto candidate = rom;
+        std::rotate(candidate.begin(), candidate.begin() + (rom.size() - 0x400000), candidate.end());
+        auto candidateHeader = ParseHeader(candidate);
+        if (candidateHeader && candidateHeader->headerOffset == header->headerOffset + 0x400000 &&
+            (candidateHeader->mapping == MappingType::ExLoRom || candidateHeader->mapping == MappingType::ExHiRom)) {
+            rom = std::move(candidate);
+            header = std::move(candidateHeader);
+        }
     }
-
-    const auto at7f = ParseHeader(rom.subspan(0));
-    if (!at7f.has_value() || at7f->headerOffset != 0x7fc0) {
-        return false;
-    }
-
-    const auto mapAt7f = MappingFromModeByte(rom[0x7FC0 + 0x15]);
-    const auto mapAtff = MappingFromModeByte(rom[0xFFC0 + 0x15]);
-
-    return mapAt7f == MappingType::HiRom && mapAtff != MappingType::HiRom;
+    return header;
 }
 
-std::vector<uint8_t> Cartridge::DeinterleaveHiRom(std::span<const uint8_t> rom) {
+std::vector<uint8_t> Cartridge::DeinterleaveRom(std::span<const uint8_t> rom) {
     const size_t half = rom.size() / 2;
     std::vector<uint8_t> out(rom.size(), 0);
 

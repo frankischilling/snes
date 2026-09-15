@@ -55,7 +55,7 @@ void Ppu::Reset() {
     // Clear rendering state
     lineStart_ = 0;
     lineCount_ = 0;
-    rasterEvents_.clear();
+    for (auto& events : rasterEvents_) events.clear();
     mosaicCounterLine_ = 0xffff;
     std::memset(output_.get(), 0,
                 static_cast<size_t>(OutputWidth) * OutputHeight * sizeof(uint32_t));
@@ -85,7 +85,7 @@ void Ppu::FrameBegin() {
     // Reset scanline cache for new frame
     lineStart_ = 0;
     lineCount_ = 0;
-    rasterEvents_.clear();
+    for (auto& events : rasterEvents_) events.clear();
     mosaicCounterLine_ = 0xffff;
 }
 
@@ -159,14 +159,13 @@ void Ppu::RecordRasterEvent(RasterEventType type, uint8_t index, const IO& befor
     if (x <= 0 || x >= 256) return;
 
     RasterEvent event;
-    event.line = currentLine_;
     event.hclock = currentHClock_;
     event.x = static_cast<uint16_t>(x);
     event.type = type;
     event.index = index;
     event.before = before;
     event.after = io_;
-    rasterEvents_.push_back(std::move(event));
+    rasterEvents_[currentLine_].push_back(std::move(event));
 }
 
 void Ppu::ApplyRasterEvent(IO& state, const RasterEvent& event, bool after) {
