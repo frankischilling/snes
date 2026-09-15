@@ -62,7 +62,9 @@ uint32_t SnesCpu::Step() {
         return instructionClocks_;
     }
 
-    if (irqPending_ && !(regs().p & FlagI)) {
+    // The I flag was sampled before the instruction's final cycle. CLI, SEI
+    // and PLP can change it after that sample; do not test the new value here.
+    if (irqPending_) {
         irqPending_ = false;
         enterInterrupt(Interrupt::Irq);
         return instructionClocks_;
@@ -71,19 +73,10 @@ uint32_t SnesCpu::Step() {
     // WAI: if the CPU is in WAI state, consume an idle cycle and return
     if (regs().wai) {
         idle();
-        // WAI clears when NMI or IRQ fires.
-        // Promote the edge/level to pending so the interrupt is dispatched
-        // on the very next Step() — no instruction after WAI should execute
-        // before the interrupt handler runs.
-        if (nmiEdge_ || irqLine_) {
+        lastCycle();
+        // A masked IRQ releases WAI without entering the interrupt handler.
+        if (nmiPending_ || irqLine_) {
             regs().wai = false;
-            if (nmiEdge_) {
-                nmiPending_ = true;
-                nmiEdge_ = false;
-            }
-            if (irqLine_ && !(regs().p & FlagI)) {
-                irqPending_ = true;
-            }
         }
         return instructionClocks_;
     }
@@ -110,35 +103,37 @@ void SnesCpu::SetIrqLevel(bool active) {
 // Bus interface overrides
 
 void SnesCpu::idle() {
+    if (beforeCycle_) beforeCycle_(6);
     addClocks(6);
 }
 
 uint8_t SnesCpu::read(uint32_t address) {
-    uint8_t speed = bus_.Speed(address);
-    addClocks(speed);
-
+    const uint8_t speed = bus_.Speed(address);
+    if (beforeCycle_) beforeCycle_(speed);
     uint8_t data = bus_.Read(address);
     openBus_ = data;
     regs().mdr = data;
+    addClocks(speed);
     return data;
 }
 
 void SnesCpu::write(uint32_t address, uint8_t data) {
-    uint8_t speed = bus_.Speed(address);
-    addClocks(speed);
-
+    const uint8_t speed = bus_.Speed(address);
+    if (beforeCycle_) beforeCycle_(speed);
     bus_.Write(address, data);
     openBus_ = data;
     regs().mdr = data;
+    addClocks(speed);
 }
 
 void SnesCpu::lastCycle() {
-    // Sample NMI/IRQ edges at the end of the last cycle of each instruction.
+    // Instruction handlers call this before their final bus or idle cycle.
+    if (onInterruptPoll_ && !onInterruptPoll_()) return;
     pollInterrupts();
 }
 
 bool SnesCpu::interruptPending() const {
-    return nmiPending_ || (irqLine_ && !(regs().p & FlagI));
+    return nmiEdge_ || nmiPending_ || irqPending_ || (irqLine_ && !flagI());
 }
 
 // Internal helpers
@@ -146,6 +141,7 @@ bool SnesCpu::interruptPending() const {
 void SnesCpu::addClocks(uint32_t clocks) {
     cycles_ += clocks;
     instructionClocks_ += clocks;
+    if (onClock_) onClock_(clocks);
 }
 
 void SnesCpu::pollInterrupts() {
@@ -155,9 +151,7 @@ void SnesCpu::pollInterrupts() {
         nmiEdge_ = false;
     }
 
-    // IRQ level detection (only fires if I flag is clear, but we record the
-    // pending state here; the check at Step() gates on I).
-    irqPending_ = irqLine_;
+    irqPending_ = irqLine_ && !flagI();
 }
 
 // DRAM Refresh — 40-master-clock penalty per scanline
@@ -173,9 +167,9 @@ void SnesCpu::pollInterrupts() {
 void SnesCpu::ApplyDramRefreshPenalty() {
     for (int i = 0; i < 5; i++) {
         dramRefreshState_ = 1;
-        addClocks(6);
+        cycles_ += 6;
         dramRefreshState_ = 2;
-        addClocks(2);
+        cycles_ += 2;
         if (onAluStep_) onAluStep_();
     }
     dramRefreshState_ = 0;

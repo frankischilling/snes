@@ -7396,13 +7396,13 @@ int main() {
             ram[0x0201] = 0x01;
             ram[0x0100] = 0x00;
 
-            // Run a sample — echo buffer should be written
-            // With all zeros, it should write zeros
-            ram[0x1000] = 0xFF;  // sentinel
+            // ESA is captured late in the first sample. Its new base becomes
+            // visible on the next sample; the running echo offset is then four.
+            ram[0x1004] = 0xFF;
             dsp.RunSample();
-            // Echo buffer at 0x1000 should be overwritten
-            // (echoOffset=0 on first sample, writes there)
-            assert(ram[0x1000] != 0xFF || ram[0x1000] == 0x00);
+            assert(ram[0x1004] == 0xFF);
+            dsp.RunSample();
+            assert(ram[0x1004] == 0x00);
 
             std::printf("  [23u] Echo buffer read/write passed\n");
         }

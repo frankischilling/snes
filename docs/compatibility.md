@@ -47,4 +47,4 @@ The arguments are ROM path, frame count, optional output path, and optional Star
 
 [ST010 cartridge support](st010.md) covers its board map, math commands, shared RAM, and command-level accuracy limits.
 
-SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, the full BS-X broadcast system, and MSU-1 remain unimplemented. These need processors, register models, or data paths in addition to address mapping. Save states and rewind also remain unfinished.
+[Original hardware support](original-hardware.md) covers the implemented SA-1 and Super FX processors, DSP-3/4 and Cx4 command engines, SPC7110 decompression and clock, BS-X controller and streams, and the limited ST011/ST018 protocols. It records the remaining processor, timing, broadcast, and game-validation gaps. A recognized chip or passing synthetic test is not a claim that every game using that chip works.

@@ -48,14 +48,14 @@ template <unsigned Frequency>
 void Smp::Timer<Frequency>::Step(unsigned clocks,
                                  bool timersEnable, bool timersDisable)
 {
-    // Stage 0: accumulate clocks
-    stage0 += static_cast<uint8_t>(clocks);
-    if (stage0 < Frequency) return;
-    stage0 -= static_cast<uint8_t>(Frequency);
-
-    // Stage 1: toggle pulse (square wave)
-    stage1 ^= 1;
-    SynchronizeStage1(timersEnable, timersDisable);
+    // Preserve every divider edge, including a batched step crossing more than
+    // one period or exceeding the eight-bit accumulator's range.
+    const uint64_t total = uint64_t(stage0) + clocks;
+    stage0 = uint8_t(total % Frequency);
+    for (uint64_t edges = total / Frequency; edges; --edges) {
+        stage1 ^= 1;
+        SynchronizeStage1(timersEnable, timersDisable);
+    }
 }
 
 template <unsigned Frequency>
@@ -112,8 +112,6 @@ void Smp::Power() {
     timer1_ = {};
     timer2_ = {};
 
-    // Reset DSP sample clock
-    dspClock_ = 0;
 }
 
 // Bus interface — Spc700 overrides
@@ -155,14 +153,11 @@ void Smp::Write(uint16_t address, uint8_t data) {
     }
 }
 
-// DSP sample clock — called once per bus cycle.
-// Every 32 bus cycles, trigger one DSP sample.
+// The DSP shares this clock. Its own phase counter determines when a sample is
+// published; register and shared-RAM operations happen on the intervening clocks.
 
 void Smp::tickDsp() {
-    if (++dspClock_ >= kDspSampleInterval) {
-        dspClock_ = 0;
-        if (dsp_) dsp_->RunSample();
-    }
+    if (dsp_) dsp_->Tick();
 }
 
 // Batch execution — run until CycleCount() >= targetCycles

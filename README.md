@@ -6,6 +6,8 @@ A SNES emulator written in C++.
 
 [Cartridge compatibility and saves](docs/compatibility.md) covers supported board layouts, prototype header detection, battery saves, headless game checks, and remaining gaps.
 
+[Original hardware support](docs/original-hardware.md) covers cartridge processors and command engines, CPU/DMA bus timing, phased audio, differential checks, and the limits of the current implementations.
+
 Build and test from the repository directory with CMake, Ninja and a C++20 compiler:
 
 ```powershell

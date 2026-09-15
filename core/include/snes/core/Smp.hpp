@@ -163,14 +163,11 @@ private:
     std::array<uint8_t, 4> apuInput_{};   // written by CPU portWrite()
     std::array<uint8_t, 4> cpuOutput_{};  // written by SMP writeIO($F4-$F7)
 
-    // DSP sample clock — counts bus cycles, triggers RunSample() at 32
+    // Each SMP bus/idle cycle advances one DSP pipeline phase.
     void tickDsp();
 
     // DSP pointer (set via SetDsp)
     Dsp* dsp_ = nullptr;
-
-    // DSP sample clock counter (0-31, triggers sample at 0)
-    int dspClock_ = 0;
 
     // Three SPC700 timers
     Timer<128> timer0_{};  // T0: ~8 kHz

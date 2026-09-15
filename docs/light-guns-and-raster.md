@@ -43,8 +43,8 @@ Palette access also used incompatible timing units: the scheduler supplied horiz
 
 ## Validation and limits
 
-All 16 Release suites pass. Gun, PPU, DMA timing, and SDL input suites also pass under AddressSanitizer. Tests cover packet endings, strobe behavior, turbo transitions, gun selection, WRIO gating, beam arrival, offscreen input, automatic polling, viewport edges, and graphics-memory changes between scanlines. An integration test transfers palette data during active display and HBlank to check the clock-unit fix.
+Tests cover packet endings, strobe behavior, turbo transitions, gun selection, WRIO gating, beam arrival, offscreen input, automatic polling, viewport edges, and graphics-memory changes between scanlines. An integration test transfers palette data during active display and HBlank to check the clock-unit fix. The full test command and current hardware scope are listed in [original hardware support](original-hardware.md).
 
 Both supplied games completed 1,800 frames with visible video and non-silent audio. The saved Contra prototype frame showed gameplay. No light-gun game was available for this check; synthetic protocol tests do not establish retail-game compatibility.
 
-Beam input uses the scheduled aim position without simulating optical brightness thresholds or sensor persistence. CPU register accesses still occur at instruction boundaries. Graphics are sampled once per scanline, so changes within a line are not reproduced at individual pixels. These changes do not complete the remaining cartridge processors or establish full hardware accuracy.
+Beam input uses the scheduled aim position without simulating optical brightness thresholds or sensor persistence. CPU register accesses advance hardware per bus cycle, while graphics remain sampled once per scanline. Changes within a line are therefore not reproduced at individual pixels. This does not establish optical sensor accuracy or complete hardware timing.

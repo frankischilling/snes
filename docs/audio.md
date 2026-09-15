@@ -8,15 +8,17 @@ Queue depth uses bytes in the input format through [SDL_GetAudioStreamQueued](ht
 
 Playback starts after at least 40 ms has accumulated. If the stream runs out of playable output, it pauses and refills before restarting. Resampler padding stays queued. An explicit pause remains in effect until `Resume()` is called. Device errors are reported, and SDL resources are destroyed before SDL shuts down.
 
-The sound CPU's timers and DSP keep advancing during SLEEP and STOP. Power cycling clears the DSP's key-on latch, so a note started immediately after reset behaves the same as on a fresh instance.
+The sound CPU's timers and DSP keep advancing during SLEEP and STOP. Each SMP bus or idle cycle advances one DSP phase. The 32-phase schedule captures voice registers, reads BRR and directory data, decodes samples, updates envelopes, mixes voices, and accesses echo RAM at their individual phases. A CPU write between phases can therefore affect the next latch without changing an earlier one. Power cycling clears the key-on latch.
+
+A long DMA can advance several video fields before `StepFrame` returns. The core drains full DSP output blocks during those transfers and submits the collected samples together. The normal 2,048-sample buffer therefore does not truncate that operation's audio. A maximal eight-channel DMA test compares the submitted count with the DSP phase count and checks that the following frame contains no stale samples.
 
 ## Checks
 
-`snes_audio_regression_tests` checks sound CPU halts and DSP reset behavior. `snes_sdl_audio_tests` uses SDL's dummy audio device at 32, 44.1 and 48 kHz to check queue accounting, preservation of submitted blocks, the frame pacing threshold, startup buffering, underrun recovery and pause/resume behavior. The tests use synthetic samples and require no game files.
+`snes_audio_regression_tests` checks sound CPU halts and DSP reset behavior. `snes_dsp_phase_tests` checks register latch boundaries, shared-RAM echo writes, output timing, key-on delay, and SMP timer/port interactions. `snes_sdl_audio_tests` uses SDL's dummy audio device at 32, 44.1 and 48 kHz to check queue accounting, preservation of submitted blocks, the frame pacing threshold, startup buffering, underrun recovery and pause/resume behavior. The tests use synthetic samples and require no game files.
 
 ```powershell
 cmake --build --preset build-release
 ctest --test-dir out/build/release --output-on-failure
 ```
 
-The DSP processes all voices once per sample. Register writes are not modeled at each of the hardware's 32 DSP phases, so these checks do not establish exact audio timing for every game. Buffering also cannot compensate for a machine that consistently takes longer to emulate a frame than the audio device takes to play it.
+The phase implementation matched 1,228,800 individual steps in 32 local differential scenarios, including DSP registers, decoder state, all shared RAM, and 38,400 stereo output frames. This checks the digital DSP behavior exercised by those scenarios. `Smp::RunUntil` still finishes whole SPC700 instructions and can overshoot a requested synchronization time, allowing a port read to run before an earlier console write is delivered. SMP TEST speed/wait-state controls and analog output transients remain unmodeled. Buffering cannot compensate for a machine that consistently emulates slower than playback.

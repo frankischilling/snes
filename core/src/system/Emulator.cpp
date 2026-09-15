@@ -39,6 +39,15 @@ std::optional<const char*> UnsupportedChipName(EnhancementChip chip) {
     case EnhancementChip::Srtc:
     case EnhancementChip::Sdd1:
     case EnhancementChip::St010:
+    case EnhancementChip::Spc7110:
+    case EnhancementChip::Spc7110Rtc:
+    case EnhancementChip::Sa1:
+    case EnhancementChip::SuperFx:
+    case EnhancementChip::Cx4:
+    case EnhancementChip::St011:
+    case EnhancementChip::St018:
+    case EnhancementChip::Dsp3:
+    case EnhancementChip::Dsp4:
         return std::nullopt;
     default:
         return ChipName(chip);
@@ -246,6 +255,14 @@ void Emulator::InitSubsystems() {
 
     // 3. Create the 65816 CPU (needs bus_ reference)
     cpu_ = std::make_unique<SnesCpu>(bus_);
+    cpu_->SetInterruptPollCallback([this]() {
+        if (irq_.IrqLocked()) return false;
+        if (irq_.NmiTest()) cpu_->RequestNmi();
+        // Keep the physical IRQ request visible while I is set so WAI wakes.
+        const bool timerIrq = irq_.IrqTest(true);
+        cpu_->SetIrqLevel(timerIrq || cartridge_->CpuIrqPending());
+        return true;
+    });
 
     // 4. Wire CpuIoRegisters → subsystem callbacks
 
@@ -268,6 +285,8 @@ void Emulator::InitSubsystems() {
         dma_.EnableDma(channels);
     });
     dma_.SetClockCallback([this](uint32_t clocks) { AdvanceClocks(clocks); });
+    dma_.SetClockQuery([this]() { return timing_.MasterClocksElapsed(); });
+    dma_.SetBoundaryCallback([this]() { ServicePendingHdma(); });
 
     // $420C HDMAEN → DMA controller
     cpuIo_.SetHdmaEnableCallback([this](uint8_t channels) {
@@ -331,10 +350,10 @@ void Emulator::InitSubsystems() {
         ppu_.FrameBegin();
         autoJoypad_.FrameBegin();
         autoJoypad_.Ports().FrameBegin();
+    };
+    timing_.onHdmaSetup = [this]() {
         dma_.HdmaReset();
-        if (dma_.AnyHdmaEnabled()) {
-            pendingExtraClocks_ += dma_.HdmaSetup();
-        }
+        pendingHdmaSetup_ = dma_.AnyHdmaEnabled();
     };
 
     // New scanline
@@ -364,9 +383,7 @@ void Emulator::InitSubsystems() {
 
     // HDMA per visible scanline
     timing_.onHdmaTransfer = [this](uint16_t /*v*/) {
-        if (dma_.AnyHdmaActive()) {
-            pendingExtraClocks_ += dma_.HdmaRun();
-        }
+        pendingHdmaRun_ = dma_.AnyHdmaActive();
     };
 
     // IRQ/NMI condition polling (every ~4 master clocks)
@@ -431,16 +448,25 @@ void Emulator::InitSubsystems() {
     const auto country = cartridge_->Header().country;
     const bool pal = (country >= 2 && country <= 12) || country == 18;
     timing_.SetRegion(pal ? Region::PAL : Region::NTSC);
+    cartridge_->SetPal(pal);
     ppu_.SetPal(pal);
     frameIndex_ = 0;
     masterCycles_ = 0;
     pendingExtraClocks_ = 0;
+    pendingHdmaSetup_ = false;
+    pendingHdmaRun_ = false;
+    servicingHdma_ = false;
+    dmaArmed_ = false;
+    audioOverflow_.clear();
+    collectingAudio_ = false;
 
     // Set up DSP audio output buffer
     dsp_.SetOutput(audioBuf_.data(), kAudioBufSamples);
 
     // CPU reset — reads the reset vector from the cartridge
     cpu_->Reset();
+    cpu_->SetClockCallback([this](uint32_t clocks) { AdvanceClocks(clocks); });
+    cpu_->SetBeforeCycleCallback([this](uint32_t clocks) { BeginCpuCycle(clocks); });
 
     initialized_ = true;
 
@@ -509,32 +535,20 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     const auto input = inputProvider_ ? inputProvider_->PollController(0, frameIndex_) : InputState{};
 
     // Prepare DSP audio buffer for this frame
+    audioOverflow_.clear();
+    collectingAudio_ = audioOutput_ != nullptr;
     dsp_.ResetSamplesWritten();
     dsp_.SetOutput(audioBuf_.data(), kAudioBufSamples);
 
     // Frame timing bookkeeping
     const uint64_t frameTarget = timing_.FrameCount() + 1;
 
-    // Main loop: execute CPU → tick timing → sync SMP → NMI/IRQ
+    // Each CPU bus access and DMA interval advances the connected hardware.
 
     while (timing_.FrameCount() < frameTarget) {
-        if (dma_.AnyDmaEnabled()) {
-            dma_.RunDma();
-        } else {
-            AdvanceClocks(cpu_->Step());
-        }
-        // Sample interrupt requests after CPU execution or a DMA stall.
-        if (!irq_.IrqLocked()) {
-            if (irq_.NmiTest()) {
-                cpu_->RequestNmi();
-            }
-            cpu_->SetIrqLevel(irq_.IrqTest(!cpu_->flagI()));
-        } else {
-            irq_.SetIrqLock(false);
-        }
+        cpu_->Step();
     }
-
-
+    collectingAudio_ = false;
     // End-of-frame processing
 
     // RenderFrame is now called from VBlankBegin() — no separate call here.
@@ -546,13 +560,11 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         AudioBuffer audio;
         audio.sampleRate = 32000;
         const int samples = dsp_.SamplesWritten();
-        if (samples > 0) {
-            audio.interleavedStereo.resize(static_cast<size_t>(samples) * 2);
-            for (int i = 0; i < samples * 2; ++i) {
-                audio.interleavedStereo[i] =
-                    static_cast<float>(audioBuf_[i]) / 32768.0f;
-            }
-        }
+        audio.interleavedStereo.reserve(audioOverflow_.size() + static_cast<size_t>(samples) * 2);
+        for (int16_t value : audioOverflow_)
+            audio.interleavedStereo.push_back(static_cast<float>(value) / 32768.0f);
+        for (int i = 0; i < samples * 2; ++i)
+            audio.interleavedStereo.push_back(static_cast<float>(audioBuf_[i]) / 32768.0f);
         audioOutput_->Submit(audio);
     }
 
@@ -589,6 +601,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
 }
 
 void Emulator::AdvanceClocks(uint32_t clocks) {
+    const auto before = timing_.MasterClocksElapsed();
     timing_.SetInterlace(ppu_.Interlace());
     timing_.Tick(clocks);
     // A penalty can trigger another refresh or HDMA event. Drain all of them
@@ -600,7 +613,55 @@ void Emulator::AdvanceClocks(uint32_t clocks) {
     }
     ppu_.SetCurrentHClock(timing_.HCounter());
     const auto elapsed = timing_.MasterClocksElapsed();
+    cartridge_->AdvanceHardware(static_cast<uint32_t>(elapsed - before));
     smp_.RunUntil(elapsed * Smp::kClockFrequency / timing_.MasterClockHz());
+    // A single DMA operation can cross several fields before StepFrame returns.
+    // Drain complete blocks during its bus phases so the DSP never discards the
+    // rest of that operation's audio when the normal frame buffer fills.
+    if (collectingAudio_ && dsp_.SamplesWritten() == kAudioBufSamples) {
+        audioOverflow_.insert(audioOverflow_.end(), audioBuf_.begin(), audioBuf_.end());
+        dsp_.ResetSamplesWritten();
+    }
+}
+
+void Emulator::BeginCpuCycle(uint32_t clocks) {
+    dma_.SetCpuCycleClocks(clocks);
+    // A request first arms the controller. One complete CPU cycle runs before
+    // the controller takes the bus at the following cycle boundary.
+    if (dmaArmed_) {
+        ServicePendingHdma();
+        if (dma_.AnyDmaEnabled()) {
+            dma_.RunDma();
+            irq_.SetIrqLock(true);
+        }
+        dmaArmed_ = false;
+    }
+    if (pendingHdmaSetup_ || pendingHdmaRun_ || dma_.AnyDmaEnabled()) dmaArmed_ = true;
+    // Release an earlier bus operation's lock before the new access. A write
+    // to $4200 can set a fresh lock which must survive until the following
+    // access, including the last-cycle sample inside a sixteen-bit store.
+    irq_.SetIrqLock(false);
+}
+
+void Emulator::ServicePendingHdma() {
+    if (servicingHdma_ || dma_.InHdma()) return;
+    servicingHdma_ = true;
+    while (pendingHdmaSetup_ || pendingHdmaRun_) {
+        if (pendingHdmaSetup_) {
+            pendingHdmaSetup_ = false;
+            if (dma_.AnyHdmaEnabled()) {
+                dma_.HdmaSetup();
+                irq_.SetIrqLock(true);
+            }
+        } else {
+            pendingHdmaRun_ = false;
+            if (dma_.AnyHdmaActive()) {
+                dma_.HdmaRun();
+                irq_.SetIrqLock(true);
+            }
+        }
+    }
+    servicingHdma_ = false;
 }
 
 // Accessors

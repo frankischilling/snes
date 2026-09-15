@@ -33,7 +33,7 @@ Core callers configure devices through `GetAutoJoypad().Ports().Configure(...)`.
 .\out\build\release\frontend\snes_frontend.exe --broadcast "C:\games\base.sfc" "C:\games\pack.bs"
 ```
 
-Use `-` for the pack to insert a blank 1 MiB flash pack. The loader checks the base cartridge's extended header and accepts LoROM, HiROM, and the 24-Mbit LoROM board. Bases requiring an enhancement processor are rejected. Pack images must contain 1 MiB; a 512-byte copier header is accepted.
+Use `-` for the pack to insert a blank 1 MiB flash pack on ordinary LoROM, HiROM, 24-Mbit LoROM, or BS-X BIOS boards. Those slot boards retain their existing maps and flash behavior. SA-1 bases with extended IDs `ZX3J` or `ZBPJ` instead accept a 512 KiB read-only expansion; `-` leaves that slot empty. A BS-X BIOS accepts 1 or 2 MiB packs. Other slot boards use 1 MiB packs. A 512-byte copier header is accepted.
 
 LoROM boards expose the pack at $C0-$EF, with 32 KiB bank addressing and mirrored bank halves. HiROM boards expose pack data in $20-$3F/$A0-$BF:$8000-$FFFF, $60-$7D, and $E0-$FF. Only $E0-$FF accepts HiROM flash commands. Base ROM, save RAM, and console WRAM retain their own address windows.
 
@@ -41,7 +41,7 @@ Flash supports byte programming ($10 or $40 followed by data), 64 KiB block eras
 
 The frontend saves flash contents to the supplied pack filename with `.flash` appended, such as `pack.bs.flash`. A blank pack uses the base filename with the same suffix. Saves load before execution and flush every 300 frames and on normal exit. They use the existing temporary-file replacement mechanism. A save of the wrong size stops loading. Base cartridge SRAM remains in its `.srm` file.
 
-This implements the slot boards and the listed flash commands. The BS-X broadcast BIOS, satellite streams, PSRAM/MMC remapping, other pack sizes, flash program/erase timing, and additional pack command sets remain unsupported.
+The BS-X BIOS has a separate controller with 512 KiB PSRAM, 32 KiB battery RAM, latched MMC mapping, flash-ready IRQ, clock registers, and two packet receivers. Core callers attach recorded payloads through `LoadBroadcastStream` and can inject a clock through `SetBroadcastTimeSource`. [Original hardware support](original-hardware.md) describes this interface and its limits. Flash operations complete synchronously; live reception, SoundLink audio, block-lock recovery, and physical program/erase timing are not implemented.
 
 ## Combined Sufami Turbo images
 
@@ -55,4 +55,4 @@ The controller tests exercise manual/automatic polling through CPU I/O, mouse pa
 
 Local 1,800-frame runs with Start at frame 600 produced 1,633 visible frames for Super Mario World and 1,448 for the Contra prototype. Both generated non-silent audio; the saved Contra frame showed gameplay. These runs check existing game behavior, not commercial mouse, multitap, or slot-cartridge compatibility.
 
-SA-1, Super FX, DSP-3/4, SPC7110 and its RTC, Cx4, ST011/018, and MSU-1 still need implementations. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) describes the added decompressor and mapper. This change does not establish full CPU, video, audio, or timing accuracy.
+[Original hardware support](original-hardware.md) describes the remaining cartridge devices and their validation limits. [S-DD1, DMA timing, and video output](dma-video-and-sdd1.md) covers the decompressor and transfer timing. Neither mapper coverage nor recorded packet delivery establishes full commercial-game or broadcast-service compatibility.

@@ -146,10 +146,15 @@ public:
     void SetBus(MemoryBus* bus) noexcept { bus_ = bus; }
     MemoryBus* Bus() const noexcept { return bus_; }
     void SetCartridge(Cartridge* cartridge) noexcept { cartridge_ = cartridge; }
-    // Advance the system after each GP-DMA byte and overhead interval.
-    // RunDma still returns its own clocks; callers using this callback must
+    // Advance the system during DMA/HDMA bus phases and overhead intervals.
+    // Methods still return their own clocks; callers using this callback must
     // not advance those clocks a second time.
     void SetClockCallback(std::function<void(uint32_t)> callback) { onClock_ = std::move(callback); }
+    void SetClockQuery(std::function<uint64_t()> callback) { clockQuery_ = std::move(callback); }
+    void SetBoundaryCallback(std::function<void()> callback) { onBoundary_ = std::move(callback); }
+    void SetCpuCycleClocks(uint32_t clocks) noexcept { cpuCycleClocks_ = clocks; }
+    bool InDma() const noexcept { return inDma_; }
+    bool InHdma() const noexcept { return inHdma_; }
 
     // Register read/write — $4300-$437F
     //
@@ -234,6 +239,16 @@ private:
     MemoryBus* bus_ = nullptr;
     Cartridge* cartridge_ = nullptr;
     std::function<void(uint32_t)> onClock_;
+    std::function<uint64_t()> clockQuery_;
+    std::function<void()> onBoundary_;
+    uint64_t dmaClocks_ = 0;
+    uint32_t cpuCycleClocks_ = 6;
+    bool inDma_ = false;
+    bool inHdma_ = false;
+
+    void Clock(uint32_t clocks);
+    uint32_t AlignToDma();
+    uint32_t ResumeCpu(uint64_t startClocks);
 
     // Internal transfer helpers (shared by GP-DMA and HDMA)
 

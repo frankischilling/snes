@@ -24,6 +24,33 @@
 
 namespace snes::core {
 
+namespace {
+struct RunningGuard {
+    bool& running;
+    explicit RunningGuard(bool& value) : running(value) { running = true; }
+    ~RunningGuard() { running = false; }
+};
+}
+
+void DmaController::Clock(uint32_t clocks) {
+    dmaClocks_ += clocks;
+    if (onClock_) onClock_(clocks);
+}
+
+uint32_t DmaController::AlignToDma() {
+    if (!clockQuery_) return 0;
+    const auto clocks = uint32_t(8 - (clockQuery_() & 7));
+    Clock(clocks);
+    return clocks;
+}
+
+uint32_t DmaController::ResumeCpu(uint64_t startClocks) {
+    if (!clockQuery_ || cpuCycleClocks_ == 0) return 0;
+    const auto clocks = cpuCycleClocks_ - uint32_t((dmaClocks_ - startClocks) % cpuCycleClocks_);
+    Clock(clocks);
+    return clocks;
+}
+
 // Construction / Reset
 DmaController::DmaController() {
     Reset();
@@ -33,6 +60,10 @@ void DmaController::Reset() {
     for (int i = 0; i < 8; ++i) {
         channels_[i].Reset();
     }
+    dmaClocks_ = 0;
+    cpuCycleClocks_ = 6;
+    inDma_ = false;
+    inHdma_ = false;
 }
 
 // Register read — $4300-$437F
@@ -262,8 +293,11 @@ bool DmaController::ValidWramTransfer(uint8_t bBusAddr, uint32_t aBusAddr) noexc
 // Updates the bus MDR (open bus).
 // On real hardware this takes 8 master cycles (two 4-cycle half-accesses).
 uint8_t DmaController::ReadA(uint32_t address) {
-    if (!ValidA(address)) return 0x00;
-    return bus_->Read(address);
+    Clock(4);
+    const auto value = ValidA(address) ? bus_->Read(address) : uint8_t(0);
+    bus_->SetOpenBus(value);
+    Clock(4);
+    return value;
 }
 
 // A-bus write — writes to the 24-bit A-bus address
@@ -277,8 +311,11 @@ void DmaController::WriteA(uint32_t address, uint8_t data) {
 // B-bus read — reads from $2100 | address (8-bit B-bus address)
 // If !valid (WRAM-to-WRAM), returns 0x00.
 uint8_t DmaController::ReadB(uint8_t address, bool valid) {
-    if (!valid) return 0x00;
-    return bus_->Read(0x2100 | address);
+    Clock(4);
+    const auto value = valid ? bus_->Read(0x2100 | address) : uint8_t(0);
+    bus_->SetOpenBus(value);
+    Clock(4);
+    return value;
 }
 
 // B-bus write — writes to $2100 | address
@@ -321,8 +358,15 @@ void DmaController::Transfer(DmaChannel& ch, uint32_t addressA, uint8_t index, c
 
     if (!ch.direction) {
         // Direction 0: A→B (CPU → PPU / register)
-        uint8_t data = source ? *source : ReadA(addressA);
-        if (source) bus_->SetOpenBus(data);
+        uint8_t data;
+        if (source) {
+            Clock(4);
+            data = *source;
+            bus_->SetOpenBus(data);
+            Clock(4);
+        } else {
+            data = ReadA(addressA);
+        }
         WriteB(addressB, data, valid);
     } else {
         // Direction 1: B→A (PPU / register → CPU)
@@ -344,7 +388,8 @@ uint32_t DmaController::RunChannelDma(DmaChannel& ch, unsigned channel) {
     if (!ch.dmaEnable) return 0;
 
     uint32_t cycles = 8; // per-channel overhead
-    if (onClock_) onClock_(8);
+    Clock(8);
+    if (onBoundary_) onBoundary_();
     if (!ch.dmaEnable) return cycles;
 
     const auto decoded = cartridge_ ? cartridge_->BeginDma(channel,
@@ -370,7 +415,7 @@ uint32_t DmaController::RunChannelDma(DmaChannel& ch, unsigned channel) {
             }
         }
         --ch.transferSize;
-        if (onClock_) onClock_(8);
+        if (onBoundary_) onBoundary_();
     } while (ch.dmaEnable && ch.transferSize);
 
     ch.dmaEnable = false;
@@ -387,15 +432,20 @@ uint32_t DmaController::RunChannelDma(DmaChannel& ch, unsigned channel) {
 //
 // Returns total master clock cycles consumed.
 uint32_t DmaController::RunDma() {
-    if (!bus_ || !AnyDmaEnabled()) return 0;
+    if (!bus_ || !AnyDmaEnabled() || inDma_ || inHdma_) return 0;
 
-    uint32_t totalCycles = 8; // global DMA overhead
-    if (onClock_) onClock_(8);
-
-    for (int i = 0; i < 8; ++i) {
-        totalCycles += RunChannelDma(channels_[i], unsigned(i));
+    uint32_t totalCycles = 0;
+    {
+        RunningGuard running(inDma_);
+        const auto start = dmaClocks_;
+        totalCycles = AlignToDma() + 8;
+        Clock(8);
+        if (onBoundary_) onBoundary_();
+        for (int i = 0; i < 8; ++i) {
+            totalCycles += RunChannelDma(channels_[i], unsigned(i));
+        }
+        totalCycles += ResumeCpu(start);
     }
-
     return totalCycles;
 }
 
@@ -554,9 +604,12 @@ uint32_t DmaController::HdmaAdvance(DmaChannel& ch, int channelIdx) {
 //
 // Returns master cycles consumed.
 uint32_t DmaController::HdmaSetup() {
-    if (!bus_) return 0;
+    if (!bus_ || inHdma_ || !AnyHdmaEnabled()) return 0;
 
-    uint32_t totalCycles = 8; // global overhead
+    RunningGuard running(inHdma_);
+    const auto start = dmaClocks_;
+    uint32_t totalCycles = (inDma_ ? 0 : AlignToDma()) + 8;
+    Clock(8);
 
     for (int i = 0; i < 8; ++i) {
         auto& ch = channels_[i];
@@ -572,6 +625,7 @@ uint32_t DmaController::HdmaSetup() {
         totalCycles += HdmaReload(ch, i);
     }
 
+    if (!inDma_) totalCycles += ResumeCpu(start);
     return totalCycles;
 }
 
@@ -587,9 +641,12 @@ uint32_t DmaController::HdmaSetup() {
 //
 // Returns master cycles consumed.
 uint32_t DmaController::HdmaRun() {
-    if (!bus_ || !AnyHdmaActive()) return 0;
+    if (!bus_ || !AnyHdmaActive() || inHdma_) return 0;
 
-    uint32_t totalCycles = 8; // global overhead
+    RunningGuard running(inHdma_);
+    const auto start = dmaClocks_;
+    uint32_t totalCycles = (inDma_ ? 0 : AlignToDma()) + 8;
+    Clock(8);
 
     // Pass 1: transfer data for each active channel
     for (int i = 0; i < 8; ++i) {
@@ -602,6 +659,7 @@ uint32_t DmaController::HdmaRun() {
         totalCycles += HdmaAdvance(channels_[i], i);
     }
 
+    if (!inDma_) totalCycles += ResumeCpu(start);
     return totalCycles;
 }
 
