@@ -3,8 +3,12 @@
 // Regression coverage for CPU instructions, interrupts, and stops.
 
 #include "snes/core/SnesCpu.hpp"
+#include "snes/core/CpuIoRegisters.hpp"
+#include "snes/core/Dma.hpp"
+#include "snes/core/MemoryBus.hpp"
 #include <array>
 #include <cstdio>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -252,6 +256,101 @@ void StackInstructionTiming() {
     }
 }
 
+void CpuIoOpenBus() {
+    auto bus = std::make_unique<MemoryBus>();
+    CpuIoRegisters io;
+    DmaController dma;
+    bus->MapWram();
+    bus->MapCpuIo(io);
+    bus->MapDma(dma);
+    dma.Write(0x4300, 0x96);
+    io.SetJoypadDataCallback([](int port) { return uint8_t(port + 1); });
+
+    for (unsigned bank : {0x00u, 0x3fu, 0x80u, 0xbfu}) {
+        const uint32_t base = bank << 16;
+        for (uint8_t seed : {uint8_t{0}, uint8_t{0x3f}, uint8_t{0xa5}, uint8_t{0xff}}) {
+            bus->Write(0x7e0001, uint8_t(seed ^ 0xff));
+            bus->WramData()[0] = seed;
+            bus->Read(0x7e0000);
+            Check("RDIO drives all eight bits", bus->Read(base | 0x4213), io.pio());
+            Check("CPU I/O read retains the memory latch", bus->OpenBus(), seed);
+            Check("Write-only I/O reads the memory latch", bus->Read(base | 0x4201), seed);
+            Check("DMA control read drives all eight bits", bus->Read(base | 0x4300), 0x96);
+            Check("Unused DMA register reads the memory latch", bus->Read(base | 0x430c), seed);
+            io.setNmiFlag(true);
+            io.setIrqFlag(false);
+            Check("RDNMI preserves memory open-bus bits", bus->Read(base | 0x4210), (seed & 0x70) | 0x82);
+            Check("TIMEUP does not inherit RDNMI bits", bus->Read(base | 0x4211), seed & 0x7f);
+            Check("HVBJOY preserves memory open-bus bits", bus->Read(base | 0x4212), seed & 0x3e);
+            Check("Joypad zero preserves memory open-bus bits", bus->Read(base | 0x4016), (seed & 0xfc) | 1);
+            Check("Joypad one preserves memory open-bus bits", bus->Read(base | 0x4017), (seed & 0xe0) | 0x1e);
+            Check("Unmapped internal I/O reads the memory latch", bus->Read(base | 0x43ff), seed);
+            Check("Consecutive internal reads preserve MDR", bus->OpenBus(), seed);
+            bus->Write(base | 0x4201, uint8_t(seed ^ 0xff));
+            Check("Internal I/O writes update MDR", bus->Read(base | 0x430c), uint8_t(seed ^ 0xff));
+        }
+    }
+
+    for (uint8_t bank : {uint8_t{0x40}, uint8_t{0x7f}, uint8_t{0xc0}, uint8_t{0xff}}) {
+        bus->Map(bank, bank, 0x4210, 0x4210,
+            [](uint32_t, uint8_t) { return uint8_t(0x5c); }, [](uint32_t, uint8_t) {});
+        bus->SetOpenBus(0xaa);
+        Check("Non-I/O banks return mapped data", bus->Read((uint32_t(bank) << 16) | 0x4210), 0x5c);
+        Check("Non-I/O banks latch mapped data", bus->OpenBus(), 0x5c);
+    }
+}
+
+void CpuIoInstructionReads() {
+    auto bus = std::make_unique<MemoryBus>();
+    CpuIoRegisters io;
+    DmaController dma;
+    bus->MapCpuIo(io);
+    bus->MapDma(dma);
+    std::array<uint8_t, 0x8000> rom{};
+    rom[0x7ffd] = 0x80;
+    bus->Map(0, 0, 0x8000, 0xffff,
+        [&](uint32_t address, uint8_t) { return rom[address & 0x7fff]; },
+        [](uint32_t, uint8_t) {});
+    io.SetJoypadDataCallback([](int port) { return uint8_t(port + 1); });
+    SnesCpu cpu(*bus);
+
+    struct ReadCase { uint16_t address; uint8_t expected; };
+    for (uint8_t bank : {uint8_t{0}, uint8_t{0x3f}, uint8_t{0x80}, uint8_t{0xbf}}) {
+        for (auto test : {ReadCase{0x4210, 0xc2}, ReadCase{0x4211, 0xc2},
+                          ReadCase{0x4212, 0x02}, ReadCase{0x4016, 0x41},
+                          ReadCase{0x4017, 0x5e}, ReadCase{0x430c, 0x43},
+                          ReadCase{0x4201, 0x42}, ReadCase{0x4000, 0x40},
+                          ReadCase{0x43ff, 0x43}}) {
+            cpu.Reset();
+            cpu.regs().db = bank;
+            io.setNmiFlag(true);
+            io.setIrqFlag(true);
+            rom[0] = 0xad; // LDA absolute: final operand byte remains on the bus.
+            rom[1] = uint8_t(test.address);
+            rom[2] = uint8_t(test.address >> 8);
+            cpu.Step();
+            Check("LDA I/O uses the last address byte for open bus", cpu.regs().a, test.expected);
+            Check("LDA I/O preserves bus MDR", bus->OpenBus(), rom[2]);
+            Check("LDA I/O preserves CPU MDR", cpu.regs().mdr, rom[2]);
+        }
+
+        cpu.Reset();
+        cpu.regs().e = false;
+        cpu.regs().p = Processor65816::FlagI; // 16-bit accumulator.
+        io.setNmiFlag(true);
+        io.setIrqFlag(true);
+        rom[0] = 0xaf; // LDA long $bb4210 reads both RDNMI and TIMEUP.
+        rom[1] = 0x10;
+        rom[2] = 0x42;
+        rom[3] = bank;
+        cpu.Step();
+        const unsigned expected = ((bank & 0x70) | 0x82) | (((bank & 0x7f) | 0x80) << 8);
+        Check("Both halves of a 16-bit I/O read use the bank operand", cpu.regs().a, expected);
+        Check("16-bit I/O read retains bus MDR", bus->OpenBus(), bank);
+        Check("16-bit I/O read retains CPU MDR", cpu.regs().mdr, bank);
+    }
+}
+
 void Stop() {
     for (bool pending : {false, true}) {
         Bus bus;
@@ -280,7 +379,7 @@ void Stop() {
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "stop") Stop();
-    else { InterruptStack(); ExtendedStackInstructions(); WaitInterrupt(); StackInstructionTiming(); PullBankBoundaries(); }
+    else { InterruptStack(); ExtendedStackInstructions(); WaitInterrupt(); StackInstructionTiming(); PullBankBoundaries(); CpuIoOpenBus(); CpuIoInstructionReads(); }
     std::printf("%d CPU checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

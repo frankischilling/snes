@@ -106,9 +106,6 @@ private:
     bool irqLine_      = false;  // Current IRQ pin state (active = true)
     bool irqPending_   = false;  // IRQ will be serviced after current instruction
 
-    // Open-bus MDR (for unmapped reads)
-    uint8_t openBus_   = 0;
-
     // DRAM refresh state: 0=idle, 1=bus-halt (6 clocks), 2=interleave (2 clocks)
     uint8_t dramRefreshState_ = 0;
 

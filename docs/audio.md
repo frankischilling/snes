@@ -12,6 +12,8 @@ The sound CPU's timers and DSP keep advancing during SLEEP and STOP. Each SMP bu
 
 A long DMA can advance several video fields before `StepFrame` returns. The core drains full DSP output blocks during those transfers and submits the collected samples together. The normal 2,048-sample buffer therefore does not truncate that operation's audio. A maximal eight-channel DMA test compares the submitted count with the DSP phase count and checks that the following frame contains no stale samples.
 
+[MSU-1 packs](msu1.md) add file-backed stereo PCM. The core resamples PCM to 32 kHz and mixes it at each DSP output sample, before the next console bus operation. Playback continues without a host audio sink, and full buffers are drained during long transfers. Mid-frame volume, pause and track changes retain samples that have already played.
+
 ## Checks
 
 `snes_audio_regression_tests` checks sound CPU halts and DSP reset behavior. `snes_dsp_phase_tests` checks register latch boundaries, shared-RAM echo writes, output timing, key-on delay, and SMP timer/port interactions. `snes_sdl_audio_tests` uses SDL's dummy audio device at 32, 44.1 and 48 kHz to check queue accounting, preservation of submitted blocks, the frame pacing threshold, startup buffering, underrun recovery and pause/resume behavior. The tests use synthetic samples and require no game files.
@@ -21,4 +23,4 @@ cmake --build --preset build-release
 ctest --test-dir out/build/release --output-on-failure
 ```
 
-The phase implementation matched 1,228,800 individual steps in 32 local differential scenarios, including DSP registers, decoder state, all shared RAM, and 38,400 stereo output frames. This checks the digital DSP behavior exercised by those scenarios. `Smp::RunUntil` still finishes whole SPC700 instructions and can overshoot a requested synchronization time, allowing a port read to run before an earlier console write is delivered. SMP TEST speed/wait-state controls and analog output transients remain unmodeled. Buffering cannot compensate for a machine that consistently emulates slower than playback.
+The phase implementation matched 1,228,800 individual steps in 32 local differential scenarios, including DSP registers, decoder state, all shared RAM, and 38,400 stereo output frames. This checks the digital DSP behavior exercised by those scenarios. `Smp::RunUntil` stops at the requested clock deadline, including within an instruction or a stretched bus cycle. Sound-port scheduling tests cover writes arriving between those cycles. Analog output transients remain unmodeled. Buffering cannot compensate for a machine that consistently emulates slower than playback.

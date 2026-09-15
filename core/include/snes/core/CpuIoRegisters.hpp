@@ -75,10 +75,10 @@ public:
     void Reset();
 
     // Bus read/write — these are called by MemoryBus handlers
-    // The openBus parameter is the CPU I/O MDR value.
+    // The openBus parameter is the shared CPU memory data latch.
 
     /// Read from CPU I/O register.  addr is the full 24-bit address;
-    /// only bits 15:0 are examined.  openBus is the CPU I/O MDR.
+    /// only bits 15:0 are examined. openBus supplies the undriven bits.
     uint8_t Read(uint32_t addr, uint8_t openBus);
 
     /// Write to CPU I/O register.

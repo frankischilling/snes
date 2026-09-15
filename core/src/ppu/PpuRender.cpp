@@ -154,16 +154,14 @@ void Ppu::RenderFrame() {
 
     lineStart_ = 0;
     lineCount_ = 0;
+    vramSnapshotCount_ = 0;
     gRenderFrame++;
 }
 
 // RenderLine — the core per-scanline pipeline
 
 void Ppu::RenderLine(Line& line) {
-    std::vector<const RasterEvent*> events;
-    for (const auto& event : rasterEvents_) {
-        if (event.line == line.y) events.push_back(&event);
-    }
+    const auto& events = rasterEvents_[line.y];
 
     if (events.empty()) {
         RenderLineSpan(line, line.io, 0, 256);
@@ -173,14 +171,14 @@ void Ppu::RenderLine(Line& line) {
     const IO snapshot = line.io;
     IO state = snapshot;
     for (auto it = events.rbegin(); it != events.rend(); ++it) {
-        ApplyRasterEvent(state, **it, false);
+        ApplyRasterEvent(state, *it, false);
     }
 
     int x = 0;
-    for (const auto* event : events) {
-        const int next = std::clamp<int>(event->x, x, 256);
+    for (const auto& event : events) {
+        const int next = std::clamp<int>(event.x, x, 256);
         if (next > x) RenderLineSpan(line, state, x, next);
-        ApplyRasterEvent(state, *event, true);
+        ApplyRasterEvent(state, event, true);
         x = next;
     }
     if (x < 256) RenderLineSpan(line, state, x, 256);

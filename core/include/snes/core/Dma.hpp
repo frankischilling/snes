@@ -159,7 +159,7 @@ public:
     // Register read/write — $4300-$437F
     //
     // These are mapped onto the bus by MemoryBus::MapDma().
-    // The openBus parameter is the CPU I/O MDR for unrecognized addresses.
+    // The openBus parameter is the shared CPU memory data latch for unrecognized addresses.
     uint8_t Read(uint32_t addr, uint8_t openBus);
     void    Write(uint32_t addr, uint8_t data);
 

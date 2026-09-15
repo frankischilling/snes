@@ -68,8 +68,8 @@ void CpuIoRegisters::Reset() {
 
 // Read — $4016-$4017, $4200-$421F
 //
-// Following bsnes readCPU().  The `openBus` parameter is the CPU I/O MDR;
-// registers that only drive some bits preserve the remaining open-bus bits.
+// The openBus parameter is the shared CPU memory data latch. Registers that
+// only drive some bits preserve the remaining open-bus bits.
 // Unrecognized addresses return openBus unchanged (pure open bus).
 
 uint8_t CpuIoRegisters::Read(uint32_t addr, uint8_t openBus) {

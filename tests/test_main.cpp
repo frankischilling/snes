@@ -560,7 +560,7 @@ int main() {
         std::printf("[MemoryBus] SnesCpu on MemoryBus test passed\n");
     }
 
-    // Test 7: Open bus behavior — global MDR vs CPU I/O MDR
+    // Test 7: Internal CPU I/O reads use and preserve the shared MDR
     {
         // Heap-allocate to avoid stack overflow (MemoryBus has 128KB WRAM)
         auto busPtr = std::make_unique<snes::core::MemoryBus>();
@@ -580,8 +580,7 @@ int main() {
         assert(u == 0xAB);               // returns global MDR
         assert(bus.OpenBus() == 0xAB);   // still 0xAB (open-bus returns MDR, then sets MDR=MDR)
 
-        // 7c: CPU I/O reads ($00-3F,$80-BF:$4000-$43FF) do NOT update
-        //     the global MDR; they update cpuIoMdr_ instead.
+        // 7c: CPU I/O reads ($00-3F,$80-BF:$4000-$43FF) retain the MDR.
         // Map a dummy CPU I/O handler at $00:4200-$421F that returns 0x77.
         bus.Map(0x00, 0x3F, 0x4200, 0x421F,
             [](uint32_t /*addr*/, uint8_t /*ob*/) -> uint8_t {
@@ -591,12 +590,10 @@ int main() {
         );
 
         bus.SetOpenBus(0x55);
-        bus.SetCpuIoMdr(0x00);
 
         uint8_t io = bus.Read(0x004210);  // $00:4210 → CPU I/O region
         assert(io == 0x77);
         assert(bus.OpenBus() == 0x55);    // global MDR NOT updated
-        assert(bus.CpuIoMdr() == 0x77);   // CPU I/O MDR updated
 
         // 7d: Mirror banks $80-$BF also covered
         bus.Map(0x80, 0xBF, 0x4200, 0x421F,
@@ -606,15 +603,12 @@ int main() {
             [](uint32_t, uint8_t) {}
         );
         bus.SetOpenBus(0x33);
-        bus.SetCpuIoMdr(0x00);
 
         uint8_t io2 = bus.Read(0x804210);  // $80:4210 → CPU I/O
         assert(io2 == 0x99);
         assert(bus.OpenBus() == 0x33);     // global MDR untouched
-        assert(bus.CpuIoMdr() == 0x99);    // CPU I/O MDR updated
 
-        // 7e: CPU I/O handler receives cpuIoMdr_ as its open-bus param,
-        //     NOT the global MDR.
+        // 7e: CPU I/O handlers receive the same MDR as ordinary memory.
         // Handler that returns the open-bus value it receives.
         bus.Map(0x00, 0x3F, 0x4300, 0x437F,
             [](uint32_t /*addr*/, uint8_t ob) -> uint8_t {
@@ -624,12 +618,10 @@ int main() {
         );
 
         bus.SetOpenBus(0xAA);
-        bus.SetCpuIoMdr(0xBB);
 
         uint8_t dma = bus.Read(0x004300);  // $00:4300 → CPU I/O DMA region
-        assert(dma == 0xBB);               // received cpuIoMdr_, not global MDR
+        assert(dma == 0xAA);               // received the shared MDR
         assert(bus.OpenBus() == 0xAA);     // global MDR unchanged
-        assert(bus.CpuIoMdr() == 0xBB);    // CPU I/O MDR still 0xBB
 
         // 7f: Addresses outside $4000-$43FF (e.g. $4400+) DO update
         //     the global MDR normally, even in the same bank.
@@ -833,17 +825,18 @@ int main() {
         uint8_t rhi = bus.Read(0x004217);  // RDMPYH
         assert((rhi << 8 | rlo) == 250);
 
-        // Read RDNMI via bus (CPU I/O MDR behavior)
+        // Read RDNMI via bus, retaining the shared open-bus bits.
         cpuIo.setNmiFlag(true);
-        bus.SetCpuIoMdr(0x70);  // bits 6-4 open bus
+        bus.SetOpenBus(0x70);  // bits 6-4 open bus
         uint8_t nmi = bus.Read(0x004210);
         assert((nmi & 0x80) == 0x80);  // NMI set
         assert((nmi & 0x0F) == 2);     // CPU version
-        assert(bus.OpenBus() != nmi);   // global MDR NOT updated
+        assert((nmi & 0x70) == 0x70);
+        assert(bus.OpenBus() == 0x70);
 
         // Mirror bank $80 works too
         cpuIo.setNmiFlag(true);
-        bus.SetCpuIoMdr(0x00);
+        bus.SetOpenBus(0x00);
         uint8_t nmi2 = bus.Read(0x804210);
         assert((nmi2 & 0x80) == 0x80);
 
@@ -994,15 +987,12 @@ int main() {
         assert(bus.Read(0x804326) == 0x01);
         assert(dma.Channel(2).transferSize == 0x01FF);
 
-        // CPU I/O MDR behavior: DMA registers at $4300-$437F are in the
-        // CPU I/O region, so reads update cpuIoMdr, NOT global MDR
+        // DMA register reads preserve MDR for the next undriven read.
         bus.SetOpenBus(0x00);
-        bus.SetCpuIoMdr(0x00);
         uint8_t val = bus.Read(0x004320);  // should be 0x41
         assert(val == 0x41);
-        assert(bus.CpuIoMdr() == 0x41);  // CPU I/O MDR updated
-        // Global MDR should NOT have been updated
         assert(bus.OpenBus() == 0x00);
+        assert(bus.Read(0x00432C) == 0x00);
 
         std::printf("[DmaController] Bus-mapped register test passed\n");
     }

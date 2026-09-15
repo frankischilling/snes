@@ -27,6 +27,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <span>
 #include <vector>
 
 namespace snes::core {
@@ -104,7 +105,10 @@ public:
     void SetVDispCallback(VDispCallback cb) { onVDisp_ = std::move(cb); }
 
     // Direct memory access — for DMA, testing, rendering
-    uint16_t* VramData() noexcept { return vram_.get(); }
+    uint16_t* VramData() noexcept {
+        vramExternallyMutable_ = true;
+        return vram_.get();
+    }
     const uint16_t* VramData() const noexcept { return vram_.get(); }
     static constexpr size_t VramWords = 32768; // 64KB / 2
 
@@ -335,7 +339,7 @@ public:
 
         IO       io;                              // Snapshot of PPU IO
         uint16_t cgram[CgramColors] = {};         // Snapshot of palette
-        std::array<uint16_t, VramWords> vram{};
+        std::span<const uint16_t> vram;
         std::array<Object, 128> objects{};
 
         ObjectItem items[128]  = {};
@@ -386,8 +390,6 @@ private:
     };
 
     struct RasterEvent {
-        uint16_t line = 0;
-        uint16_t hclock = 0;
         uint16_t x = 0;
         RasterEventType type = RasterEventType::Display;
         uint8_t index = 0;
@@ -405,6 +407,9 @@ private:
 
     /// Write VRAM byte (lowByte=false → low, true → high)
     void WriteVram(bool highByte, uint8_t data);
+
+    /// Keep one immutable copy per VRAM revision until the frame is rendered.
+    std::span<const uint16_t> SnapshotVram();
 
     /// Read a byte from OAM (10-bit address space, 544 bytes)
     uint8_t ReadOam(uint16_t address);
@@ -511,13 +516,19 @@ private:
     // Parsed OAM objects (128 entries, built from raw OAM before rendering)
     std::array<Object, 128> objects_{};
 
-    // Per-scanline rendering cache (max 240 visible lines)
-    // Heap-allocated to avoid stack overflow (~1.3 MB)
+    // Per-scanline rendering cache. Tile memory is shared by unchanged lines.
     static constexpr int MaxVisibleLines = 240;
     std::unique_ptr<Line[]> lines_;
     int lineStart_ = 0;
     int lineCount_ = 0;
-    std::vector<RasterEvent> rasterEvents_;
+    std::array<std::vector<RasterEvent>, MaxVisibleLines> rasterEvents_;
+    using VramSnapshot = std::array<uint16_t, VramWords>;
+    std::vector<std::unique_ptr<VramSnapshot>> vramSnapshots_;
+    size_t vramSnapshotCount_ = 0;
+    bool vramDirty_ = true;
+    // A caller can retain VramData() across frames and reset. Compare memory
+    // before sharing a snapshot once a mutable pointer has escaped.
+    bool vramExternallyMutable_ = false;
 
     // Mosaic progression normally happens from SetCurrentLine at H=0.  Direct
     // renderer tests may call ScanlineBegin instead, so guard against a second

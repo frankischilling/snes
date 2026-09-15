@@ -44,19 +44,13 @@ uint8_t MemoryBus::Read(uint32_t address) {
     address &= 0x00FFFFFF; // mask to 24 bits
     uint8_t slot = lookup_[address];
 
-    // CPU internal I/O ($00-3F,$80-BF:$4000-$43FF) uses its own MDR.
-    // Reads from this region do NOT update the global MDR.
-    // bsnes reference: sfc/cpu/memory.cpp line 44
-    //   if((address & 0x40fc00) != 0x4000) r.mdr = data;
+    // Internal CPU registers use the current memory data latch for undriven
+    // bits. Their read results do not replace that latch.
     const bool isCpuIo = (address & 0x40fc00) == 0x4000;
 
-    // CPU I/O handlers receive cpuIoMdr_ as their open-bus value;
-    // all other handlers receive the global mdr_.
-    uint8_t data = readers_[slot](address, isCpuIo ? cpuIoMdr_ : mdr_);
+    uint8_t data = readers_[slot](address, mdr_);
 
-    if (isCpuIo) {
-        cpuIoMdr_ = data;
-    } else {
+    if (!isCpuIo) {
         mdr_ = data;
     }
     return data;
@@ -182,7 +176,6 @@ void MemoryBus::Reset() {
 
     // Reset MDR
     mdr_ = 0;
-    cpuIoMdr_ = 0;
 
     // Reset bus speed
     fastRom_ = false;

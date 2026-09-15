@@ -31,7 +31,6 @@ void SnesCpu::Reset() {
     nmiPending_ = false;
     irqLine_    = false;
     irqPending_ = false;
-    openBus_    = 0;
 
     // Load the reset vector
     uint8_t pcl = bus_.Read(0xFFFC);
@@ -112,8 +111,8 @@ uint8_t SnesCpu::read(uint32_t address) {
     const uint8_t speed = bus_.Speed(address);
     if (beforeCycle_) beforeCycle_(speed);
     uint8_t data = bus_.Read(address);
-    openBus_ = data;
-    regs().mdr = data;
+    // Internal register reads leave the external memory data latch intact.
+    if ((address & 0x40fc00) != 0x4000) regs().mdr = data;
     addClocks(speed);
     if (onAluStep_) onAluStep_(false);
     return data;
@@ -124,7 +123,6 @@ void SnesCpu::write(uint32_t address, uint8_t data) {
     const uint8_t speed = bus_.Speed(address);
     if (beforeCycle_) beforeCycle_(speed);
     bus_.Write(address, data);
-    openBus_ = data;
     regs().mdr = data;
     addClocks(speed);
 }

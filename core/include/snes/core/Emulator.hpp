@@ -32,6 +32,7 @@
 #include "snes/core/Dsp2.hpp"
 #include "snes/core/Obc1.hpp"
 #include "snes/core/Srtc.hpp"
+#include "snes/core/Msu1.hpp"
 
 #include <array>
 #include <cstdint>
@@ -166,6 +167,7 @@ private:
     std::unique_ptr<Dsp2> dsp2_;
     std::unique_ptr<Obc1> obc1_;
     std::unique_ptr<Srtc> srtc_;
+    std::unique_ptr<Msu1> msu1_;
 
     // Audio output buffer (stereo interleaved int16_t, enough for 1+ frames)
     static constexpr int kAudioBufSamples = 2048;

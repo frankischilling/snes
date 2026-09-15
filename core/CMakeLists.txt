@@ -1,5 +1,6 @@
 add_library(snes_core
   src/cartridge/Cartridge.cpp
+  src/cartridge/Msu1.cpp
   src/cartridge/BroadcastCartridge.cpp
   src/cartridge/Sdd1.cpp
   src/cartridge/St010.cpp
