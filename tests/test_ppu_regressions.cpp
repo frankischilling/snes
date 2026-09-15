@@ -383,6 +383,132 @@ void RasterRegisterChanges() {
                Pixel(*ppu, 128, 0) == Pixel(*ppu, 131, 0),
                "Mosaic starts in the span following its timestamp");
     }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->WriteIO(0x2123, 0x02);
+        ppu->WriteIO(0x2126, 0);
+        ppu->WriteIO(0x2127, 255);
+        ppu->WriteIO(0x212e, 1);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2127, 127);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0, "Raster window position preserves the earlier masked span");
+        Expect(Pixel(*ppu, 192, 0) == 0x001f, "Raster window position applies only after its timestamp");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->WriteIO(0x2123, 0x0a);
+        ppu->WriteIO(0x2126, 0);
+        ppu->WriteIO(0x2127, 127);
+        ppu->WriteIO(0x2128, 128);
+        ppu->WriteIO(0x2129, 255);
+        ppu->WriteIO(0x212e, 1);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x212a, 0x01);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0, "Raster window logic preserves the earlier OR-masked span");
+        Expect(Pixel(*ppu, 192, 0) == 0x001f, "Raster window logic applies the new AND rule after its timestamp");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->WriteIO(0x212c, 0);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->SetCurrentHClock(RasterClock(64));
+        ppu->WriteIO(0x212c, 1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(192));
+        ppu->WriteIO(0x212c, 0);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 32, 0) == 0, "Raster main-screen selection reconstructs the pre-snapshot disabled span");
+        Expect(Pixel(*ppu, 100, 0) == 0x001f, "Raster main-screen selection keeps the state sampled at H=512");
+        Expect(Pixel(*ppu, 220, 0) == 0, "Raster main-screen selection applies a later write to the final span");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->WriteIO(0x2123, 0x02);
+        ppu->WriteIO(0x2126, 0);
+        ppu->WriteIO(0x2127, 255);
+        ppu->WriteIO(0x212e, 0);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x212e, 1);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0x001f, "Raster main-window enable preserves the earlier visible span");
+        Expect(Pixel(*ppu, 192, 0) == 0, "Raster main-window enable masks the layer after its timestamp");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2130, 0xc0);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0x001f, "Raster color-window control preserves the earlier main pixel");
+        Expect(Pixel(*ppu, 192, 0) == 0, "Raster color-window control clips main pixels after its timestamp");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->WriteIO(0x2125, 0xa0);
+        ppu->WriteIO(0x2126, 0);
+        ppu->WriteIO(0x2127, 127);
+        ppu->WriteIO(0x2128, 128);
+        ppu->WriteIO(0x2129, 255);
+        ppu->WriteIO(0x2130, 0x40);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x212b, 0x04);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0x001f, "Raster color-window logic preserves the earlier OR span");
+        Expect(Pixel(*ppu, 192, 0) == 0, "Raster color-window logic applies the later AND span");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->CgramData()[1] = 5;
+        ppu->WriteIO(0x2132, 0x44);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2131, 0x01);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 5, "Raster color-math designation preserves the earlier unblended span");
+        Expect(Pixel(*ppu, 192, 0) == static_cast<uint16_t>(5 | (4 << 5)),
+               "Raster color-math designation blends only after its timestamp");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->CgramData()[1] = 5;
+        ppu->WriteIO(0x2131, 0x01);
+        ppu->WriteIO(0x2132, 0x21);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2132, 0x22);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 6, "Raster fixed color preserves the earlier blend operand");
+        Expect(Pixel(*ppu, 192, 0) == 7, "Raster fixed color changes only the later blend span");
+    }
 }
 
 uint16_t Mode7DirectColor(uint8_t color) {
@@ -424,6 +550,24 @@ void Mode7DirectColorAndExtbgMosaic() {
         RenderLines(*ppu, 1);
         Expect(Pixel(*ppu, 0, 0) == 0x03e0,
                "EXTBG BG2 remains palette indexed when BG1 direct color is enabled");
+    }
+
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupMode7(*ppu);
+        ppu->WriteIO(0x212c, 1);
+        constexpr uint8_t raw = 0xe7;
+        ppu->CgramData()[raw] = 0x001f;
+        for (int i = 0; i < 64; ++i) ppu->VramData()[i] = static_cast<uint16_t>(raw << 8);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2130, 0x01);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0x001f, "Raster direct-color control preserves the earlier indexed span");
+        Expect(Pixel(*ppu, 192, 0) == Mode7DirectColor(raw),
+               "Raster direct-color control changes Mode 7 pixels after its timestamp");
     }
 
     {
@@ -542,6 +686,38 @@ void HiresAdjacentMathAndWindows() {
                    mode5 ? "Hires pixels after the boundary use the new scroll/window state" :
                            "Pseudo-hires pixels after the boundary use the new scroll/window state");
         }
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupHiresPair(*ppu, false);
+        ppu->WriteIO(0x212d, 0);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x212d, 2);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 128, 0) == 0, "Raster sub-screen selection preserves the earlier backdrop sub pixel");
+        Expect(Pixel(*ppu, 384, 0) == static_cast<uint16_t>(5 << 5),
+               "Raster sub-screen selection enables the later pseudo-hires sub pixel");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupHiresPair(*ppu, false);
+        ppu->WriteIO(0x2123, 0x20);
+        ppu->WriteIO(0x2126, 0);
+        ppu->WriteIO(0x2127, 255);
+        ppu->WriteIO(0x212f, 0);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x212f, 2);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 128, 0) == static_cast<uint16_t>(5 << 5),
+               "Raster sub-window enable preserves the earlier pseudo-hires sub pixel");
+        Expect(Pixel(*ppu, 384, 0) == 0,
+               "Raster sub-window enable masks the later pseudo-hires sub pixel");
     }
 }
 

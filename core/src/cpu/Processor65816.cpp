@@ -1578,8 +1578,11 @@ void Processor65816::instructionPullB() {
     idle();
     idle();
     lastCycle();
-    r.db = pull();
+    // PLB can read $0200 when the emulation stack starts at $01FF.
+    // Restore the stack page only after the full-width address increment.
+    r.db = pullN();
     setNZ8(r.db);
+    if (r.e) r.s = static_cast<uint16_t>(0x0100 | lo(r.s));
 }
 
 // PLP — Pull Processor Status

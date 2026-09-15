@@ -56,16 +56,16 @@ void Sa1::StartArithmetic() {
     } else if (mode == 1) {
         arithmeticNext_ = 0;
         if (bitsB) {
-            // The dividend is signed, but the remainder is nonnegative. This
-            // is floor division, including negative, nonintegral quotients.
-            int64_t quotient = a / bitsB;
+            const int64_t quotient = a / bitsB;
             int64_t remainder = a % bitsB;
-            if (remainder < 0) { --quotient; remainder += bitsB; }
+            if (remainder < 0) remainder = -remainder;
             arithmeticNext_ = uint16_t(quotient) | (uint64_t(remainder) << 16);
-            // Division fills the same five-byte signed result latch as a
-            // multiply. Preserve bit 31 in its upper byte as well.
-            if (arithmeticNext_ & 0x80000000) arithmeticNext_ |= uint64_t{0xff} << 32;
+        } else {
+            const uint16_t quotient = a < 0 ? 1 : 0xffff;
+            const uint16_t remainder = static_cast<uint16_t>(a < 0 ? -a : a);
+            arithmeticNext_ = quotient | (uint64_t(remainder) << 16);
         }
+        if (arithmeticNext_ & 0x80000000) arithmeticNext_ |= uint64_t{0xff} << 32;
         registers_[0x51] = registers_[0x52] = 0;
     } else {
         arithmeticNext_ = static_cast<uint64_t>(a * b) & AccumulatorMask;
@@ -76,9 +76,13 @@ void Sa1::StartArithmetic() {
 void Sa1::RefreshBitResult() {
     uint32_t bits = 0;
     for (unsigned byte = 0; byte < 4; ++byte) {
-        const uint32_t address = (bitAddress_ + byte) & 0xffffff;
-        // A bit stream cannot recursively invoke its own register read port.
-        bits |= uint32_t(ReadMemory(address, regs().mdr, Side::Sa1, false)) << (byte * 8);
+        uint32_t address = (bitAddress_ + byte) & 0xffffff;
+        const uint8_t bank = static_cast<uint8_t>(address >> 16);
+        if (bank < 0xc0 && ((bank & 0x40) || !(address & 0x8000)))
+            address = 0x008000 | (address & 0x7fff);
+        uint32_t offset = 0;
+        const uint8_t value = RomOffset(address, offset) ? ReadRom(offset, regs().mdr) : regs().mdr;
+        bits |= uint32_t(value) << (byte * 8);
     }
     bitResult_ = static_cast<uint16_t>(bits >> bitOffset_);
 }

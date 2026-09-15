@@ -105,6 +105,7 @@ void SnesCpu::SetIrqLevel(bool active) {
 void SnesCpu::idle() {
     if (beforeCycle_) beforeCycle_(6);
     addClocks(6);
+    if (onAluStep_) onAluStep_(false);
 }
 
 uint8_t SnesCpu::read(uint32_t address) {
@@ -114,10 +115,12 @@ uint8_t SnesCpu::read(uint32_t address) {
     openBus_ = data;
     regs().mdr = data;
     addClocks(speed);
+    if (onAluStep_) onAluStep_(false);
     return data;
 }
 
 void SnesCpu::write(uint32_t address, uint8_t data) {
+    if (onAluStep_) onAluStep_(true);
     const uint8_t speed = bus_.Speed(address);
     if (beforeCycle_) beforeCycle_(speed);
     bus_.Write(address, data);
@@ -170,7 +173,7 @@ void SnesCpu::ApplyDramRefreshPenalty() {
         cycles_ += 6;
         dramRefreshState_ = 2;
         cycles_ += 2;
-        if (onAluStep_) onAluStep_();
+        if (onAluStep_) onAluStep_(false);
     }
     dramRefreshState_ = 0;
 }

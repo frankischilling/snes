@@ -75,7 +75,7 @@ public:
 
     // Timer stepping — call after each SMP bus cycle to advance timers
     // 'clocks' is the number of ideal timer ticks for this bus operation.
-    // Default wait states: 2 ticks per half-cycle.
+    // Default wait states: two timer ticks per 1.024 MHz clock.
     void StepTimers(unsigned clocks);
 
     // DSP connection
@@ -86,7 +86,7 @@ public:
     static constexpr int      kDspSampleInterval = 32;      // SMP clocks per DSP sample
 
     // Batch execution — run SMP through exactly targetCycles.
-    // Instructions may pause between bus/idle cycles at the deadline; Step()
+    // Instructions may pause within stretched bus cycles at the deadline; Step()
     // remains available for callers that intentionally want a full instruction.
     // DSP samples and timers are ticked automatically during bus operations.
     void RunUntil(uint64_t targetCycles);
@@ -139,6 +139,19 @@ public:
     const Timer<16>&  GetTimer2() const noexcept { return timer2_; }
 
 private:
+    struct BusWait {
+        uint8_t elapsed = 0;
+        uint8_t duration = 0;
+        uint8_t timerTicks = 0;
+        uint8_t readData = 0;
+        bool sampled = false;
+    } busWait_{};
+
+    bool ExecuteBusCycle(const PendingCycle& cycle) override;
+    bool ClockBusCycle(const PendingCycle& cycle, BusWait& wait);
+    uint8_t ReadBus(uint16_t address);
+    void WriteBus(uint16_t address, uint8_t data);
+
     // Internal I/O dispatch
     uint8_t readIO(uint16_t address);
     void    writeIO(uint16_t address, uint8_t data);
@@ -164,7 +177,7 @@ private:
     std::array<uint8_t, 4> apuInput_{};   // written by CPU portWrite()
     std::array<uint8_t, 4> cpuOutput_{};  // written by SMP writeIO($F4-$F7)
 
-    // Each SMP bus/idle cycle advances one DSP pipeline phase.
+    // Each elapsed 1.024 MHz clock advances one DSP pipeline phase.
     void tickDsp();
 
     // DSP pointer (set via SetDsp)
