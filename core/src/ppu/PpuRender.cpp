@@ -154,6 +154,7 @@ void Ppu::RenderFrame() {
 
     lineStart_ = 0;
     lineCount_ = 0;
+    vramSnapshotCount_ = 0;
     gRenderFrame++;
 }
 

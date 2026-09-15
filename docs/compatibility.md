@@ -29,13 +29,17 @@ Each save is written to a temporary file beside the destination, then renamed ov
 
 ## Headless game checks
 
-The smoke tool runs a supplied ROM without opening a window. It reports visible frames and non-silent audio samples, presses Start for 20 frames, and can save the final frame as a BMP:
+The smoke tool runs a supplied ROM without opening a window. It reports visible frames, non-silent audio samples, elapsed time, throughput and median/95th/99th-percentile/maximum frame times. It presses Start for 20 frames and can save the final frame as a BMP:
 
 ```powershell
 .\out\build\release\tools\snes_rom_smoke.exe ".\game.sfc" 1800 ".\out\game.bmp" 600
 ```
 
 The arguments are ROM path, frame count, optional output path, and optional Start frame (default 240). Exit code 0 means at least one frame contained nonblack pixels; code 1 means none did; code 2 means loading, argument parsing, or output failed. A successful result does not prove correct gameplay or sound. The tool does not load or save battery files.
+
+Timing covers each `StepFrame` call, including the tool's video and audio collectors. ROM loading and BMP writing are excluded. This measures core throughput without a display or audio device; it does not measure presentation latency or tearing. Compare the same ROM, frame count and input timing under similar host load.
+
+[Performance checks](performance.md) records the measured baseline, paired run order, frame times and matching output counts for the supplied games.
 
 ## Remaining work
 

@@ -6,6 +6,7 @@
 #include "snes/core/SnesCpu.hpp"
 #include <algorithm>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -13,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <stdexcept>
+#include <vector>
 
 using namespace snes::core;
 namespace {
@@ -84,11 +86,26 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "%s\n", error.c_str());
             return 2;
         }
-        for (unsigned i = 0; i < frames; ++i) emu->StepFrame();
+        std::vector<double> frameTimes;
+        frameTimes.reserve(frames);
+        using Clock = std::chrono::steady_clock;
+        const auto started = Clock::now();
+        for (unsigned i = 0; i < frames; ++i) {
+            const auto before = Clock::now();
+            emu->StepFrame();
+            frameTimes.push_back(std::chrono::duration<double, std::milli>(Clock::now() - before).count());
+        }
+        const double seconds = std::chrono::duration<double>(Clock::now() - started).count();
+        std::sort(frameTimes.begin(), frameTimes.end());
+        const auto percentile = [&](size_t percent) {
+            return frameTimes[(frameTimes.size() - 1) * percent / 100];
+        };
         const auto& r = emu->GetCpu()->regs();
         std::printf("frames=%u visible=%u audible_samples=%u PC=%02X:%04X display=%s brightness=%u\n",
                     frames, output.visibleFrames, output.audibleSamples, r.pb, r.pc,
                     emu->GetPpu().DisplayDisable() ? "off" : "on", emu->GetPpu().Brightness());
+        std::printf("seconds=%.3f fps=%.2f frame_ms_median=%.3f p95=%.3f p99=%.3f max=%.3f\n",
+                    seconds, frames / seconds, percentile(50), percentile(95), percentile(99), frameTimes.back());
         if (argc > 3 && !output.Save(argv[3])) return 2;
         return output.visibleFrames ? 0 : 1;
     } catch (const std::exception& error) {

@@ -16,6 +16,8 @@ The sound CPU's timers and DSP keep advancing during SLEEP and STOP. Each SMP bu
 
 A long DMA can advance several video fields before `StepFrame` returns. The core drains full DSP output blocks during those transfers and submits the collected samples together. The normal 2,048-sample buffer therefore does not truncate that operation's audio. A maximal eight-channel DMA test compares the submitted count with the DSP phase count and checks that the following frame contains no stale samples.
 
+[MSU-1 packs](msu1.md) add file-backed stereo PCM. The core resamples PCM to 32 kHz and mixes it at each DSP output sample, before the next console bus operation. Playback continues without a host audio sink, and full buffers are drained during long transfers. Mid-frame volume, pause and track changes retain samples that have already played.
+
 ## Checks
 
 `snes_audio_regression_tests` checks sound CPU halts and DSP reset behavior. `snes_dsp_phase_tests` checks register latch boundaries, shared-RAM echo writes, output timing, key-on delay, and SMP timer/port interactions. `snes_sdl_audio_tests` uses SDL's dummy audio device at 32, 44.1 and 48 kHz to check queue accounting, preservation of submitted blocks, startup buffering, underrun recovery and pause/resume behavior.

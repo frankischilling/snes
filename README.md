@@ -17,6 +17,7 @@ The core includes:
 - An SPC700 and S-DSP audio path with BRR samples, envelopes, Gaussian interpolation, pitch modulation, noise, stereo mixing, and echo at 32 kHz.
 - Cartridge header detection, 512-byte copier-header removal, interleaved ROM normalization, LoROM and HiROM mirrors, extended layouts, SRAM, and fast-ROM access timing.
 - Cartridge hardware for DSP-1, DSP-2, DSP-3, DSP-4, OBC1, S-RTC, S-DD1, SPC7110, SA-1, Super FX, Cx4, ST010, BS-X, and Sufami Turbo. ST011 and ST018 currently cover their implemented board protocols, not their internal processors.
+- MSU-1 data streaming and PCM playback from `.msu` and numbered `.pcm` sidecars.
 - SDL input for gamepads, keyboard controls, mouse, multitap, Super Scope, Justifiers, and the MACS rifle.
 - `.srm`, `.rtc`, and flash sidecar saves, written through temporary files before replacement.
 
@@ -50,6 +51,8 @@ Use `--port1=` or `--port2=` to select `pad`, `mouse`, `multitap`, or `none`. Po
 
 When a cartridge has battery RAM, the frontend looks for an `.srm` file beside the ROM. S-RTC and SPC7110 RTC state use `.rtc` files. Broadcast flash packs use a `.flash` sidecar. Changed saves are flushed every 300 frames and again when the frontend exits normally.
 
+For an MSU-1 game, place `game.msu` and its `game-<track>.pcm` files beside `game.sfc`. The loader detects the data file automatically. [MSU-1 data and audio](docs/msu1.md) describes file formats, playback behavior and supported pack layouts.
+
 Pictures are prepared ahead of deadlines derived from the console clock. Audio queue feedback corrects device-clock drift gradually, and output buffers are reused across frames. [Audio playback](docs/audio.md) describes pacing, underrun recovery and the remaining display limits.
 
 ## Tests and tools
@@ -58,10 +61,12 @@ The CTest suite uses generated ROMs, small 65816 and coprocessor programs, comma
 
 The build also includes two small command-line tools:
 
-- `snes_rom_smoke` runs a ROM without opening a window, counts frames with nonblack pixels and non-silent audio samples, presses Start for a short scripted interval, and can save the last frame as a BMP.
+- `snes_rom_smoke` runs a ROM without opening a window, counts visible frames and audible samples, reports frame-time percentiles, presses Start for a short scripted interval, and can save the last frame as a BMP.
 - `snes_trace_dump` demonstrates a trace sink for CPU bus, PPU register, and DMA events.
 
 The smoke tool's arguments and exit codes are documented in [Cartridge compatibility and saves](docs/compatibility.md). [Source layout](docs/source-layout.md) maps the core's folders to the hardware they contain.
+
+[Performance checks](docs/performance.md) records paired local measurements, frame-time ranges and the limits of the game smoke tests.
 
 ## Current limits
 

@@ -137,7 +137,19 @@ bool Emulator::LoadSufamiTurbo(std::span<const uint8_t> bios, std::span<const ui
 
 bool Emulator::LoadCartridgeFromFile(const std::string& path, std::string* error) {
     const auto data = ReadImage(path, error);
-    return data && LoadCartridge(*data, error);
+    if (!data || !LoadCartridge(*data, error)) return false;
+
+    auto msu1 = std::make_unique<Msu1>();
+    if (msu1->Open(path)) {
+        msu1_ = std::move(msu1);
+        const auto slot = bus_.RegisterHandler(
+            [this](uint32_t address, uint8_t openBus) { return msu1_->Read(address, openBus); },
+            [this](uint32_t address, uint8_t value) { msu1_->Write(address, value); });
+        bus_.MapRange(0x00, 0x3f, 0x2000, 0x2007, slot);
+        bus_.MapRange(0x80, 0xbf, 0x2000, 0x2007, slot);
+        Logger::Instance().Write(LogLevel::Info, "MSU-1 data and PCM playback enabled");
+    }
+    return true;
 }
 
 bool Emulator::LoadBroadcastCartridge(std::span<const uint8_t> base, std::span<const uint8_t> pack,
@@ -180,6 +192,7 @@ const Cartridge* Emulator::LoadedCartridge() const noexcept {
 // InitSubsystems — wire callbacks, map bus, reset everything
 
 void Emulator::InitSubsystems() {
+    msu1_.reset();
     // 1. Inter-subsystem connections
     dsp_.SetRam(smp_.Ram());
     smp_.SetDsp(dsp_);
@@ -616,12 +629,27 @@ void Emulator::AdvanceClocks(uint32_t clocks) {
     ppu_.SetCurrentHClock(timing_.HCounter());
     const auto elapsed = timing_.MasterClocksElapsed();
     cartridge_->AdvanceHardware(static_cast<uint32_t>(elapsed - before));
+    const int firstSample = dsp_.SamplesWritten();
     smp_.RunUntil(elapsed * Smp::kClockFrequency / timing_.MasterClockHz());
+    if (msu1_) {
+        // Mix before this bus phase completes: later volume or track writes
+        // must not change PCM that has already played. Use the DSP's sample
+        // clock so NTSC, PAL and intervals spanning frame boundaries agree.
+        for (int sample = firstSample; sample < dsp_.SamplesWritten(); ++sample) {
+            const auto pcm = msu1_->NextSample();
+            for (int channel = 0; channel < 2; ++channel) {
+                const int index = sample * 2 + channel;
+                audioBuf_[index] = static_cast<int16_t>(
+                    std::clamp(int{audioBuf_[index]} + pcm[channel], -32768, 32767));
+            }
+        }
+    }
     // A single DMA operation can cross several fields before StepFrame returns.
     // Drain complete blocks during its bus phases so the DSP never discards the
     // rest of that operation's audio when the normal frame buffer fills.
-    if (collectingAudio_ && dsp_.SamplesWritten() == kAudioBufSamples) {
-        audioOverflow_.insert(audioOverflow_.end(), audioBuf_.begin(), audioBuf_.end());
+    if (dsp_.SamplesWritten() == kAudioBufSamples) {
+        if (collectingAudio_)
+            audioOverflow_.insert(audioOverflow_.end(), audioBuf_.begin(), audioBuf_.end());
         dsp_.ResetSamplesWritten();
     }
 }

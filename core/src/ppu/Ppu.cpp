@@ -56,6 +56,8 @@ void Ppu::Reset() {
     lineStart_ = 0;
     lineCount_ = 0;
     for (auto& events : rasterEvents_) events.clear();
+    vramSnapshotCount_ = 0;
+    vramDirty_ = true;
     mosaicCounterLine_ = 0xffff;
     std::memset(output_.get(), 0,
                 static_cast<size_t>(OutputWidth) * OutputHeight * sizeof(uint32_t));
@@ -86,6 +88,7 @@ void Ppu::FrameBegin() {
     lineStart_ = 0;
     lineCount_ = 0;
     for (auto& events : rasterEvents_) events.clear();
+    vramSnapshotCount_ = 0;
     mosaicCounterLine_ = 0xffff;
 }
 
@@ -312,7 +315,7 @@ void Ppu::ScanlineBegin(uint16_t line) {
             cache.io.displayDisable = true;
         } else {
             std::memcpy(cache.cgram, cgram_.data(), sizeof(cache.cgram));
-            std::copy_n(vram_.get(), VramWords, cache.vram.begin());
+            cache.vram = SnapshotVram();
             ParseOam();
             cache.objects = objects_;
         }
@@ -358,11 +361,31 @@ void Ppu::WriteVram(bool highByte, uint8_t data) {
         return;
     }
     uint16_t addr = TranslatedVramAddress();
+    const uint16_t previous = vram_[addr];
     if (!highByte) {
         vram_[addr] = (vram_[addr] & 0xFF00) | static_cast<uint16_t>(data);
     } else {
         vram_[addr] = (vram_[addr] & 0x00FF) | (static_cast<uint16_t>(data) << 8);
     }
+    vramDirty_ |= vram_[addr] != previous;
+}
+
+std::span<const uint16_t> Ppu::SnapshotVram() {
+    if (vramSnapshotCount_ != 0 && !vramDirty_) {
+        const auto& previous = *vramSnapshots_[vramSnapshotCount_ - 1];
+        if (!vramExternallyMutable_ ||
+            std::equal(previous.begin(), previous.end(), vram_.get())) {
+            return previous;
+        }
+    }
+
+    if (vramSnapshotCount_ == vramSnapshots_.size()) {
+        vramSnapshots_.push_back(std::make_unique<VramSnapshot>());
+    }
+    auto& snapshot = *vramSnapshots_[vramSnapshotCount_++];
+    std::copy_n(vram_.get(), VramWords, snapshot.begin());
+    vramDirty_ = false;
+    return snapshot;
 }
 
 // OAM helpers

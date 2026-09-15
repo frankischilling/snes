@@ -118,22 +118,12 @@ public:
 
     // Open bus MDR
     //
-    // The SNES has two open-bus behaviors:
-    //  1. Global MDR: updated on every bus read EXCEPT CPU internal I/O
-    //     ($00-3F,$80-BF:$4000-$43FF).  Unmapped addresses return this.
-    //  2. CPU I/O MDR: updated ONLY when reading $4000-$43FF.  Each
-    //     register handler in that range receives this as the open-bus
-    //     fallback, and only drives the bits it owns (leaving the rest
-    //     as the CPU I/O MDR value).
-    //
-    // Check: (address & 0x40fc00) == 0x4000  → CPU I/O region
-    // Reference: bsnes sfc/cpu/memory.cpp line 44
+    // Every handler receives the same memory data latch. Reads of internal
+    // CPU registers ($00-3F,$80-BF:$4000-$43FF) preserve its value; other
+    // reads and all writes update it. Partially driven registers combine
+    // their own bits with this latch, even after another internal I/O read.
     uint8_t OpenBus() const noexcept { return mdr_; }
     void SetOpenBus(uint8_t v) noexcept { mdr_ = v; }
-
-    /// CPU I/O open-bus MDR ($4000-$43FF region)
-    uint8_t CpuIoMdr() const noexcept { return cpuIoMdr_; }
-    void SetCpuIoMdr(uint8_t v) noexcept { cpuIoMdr_ = v; }
 
     // WMDATA address register ($2181-$2183 write, $2180 read/write)
     uint32_t WmdataAddress() const noexcept { return wmdataAddr_; }
@@ -157,9 +147,6 @@ private:
 
     // Open bus — global Memory Data Register
     uint8_t mdr_ = 0;
-
-    // CPU I/O MDR — separate latch for $4000-$43FF reads
-    uint8_t cpuIoMdr_ = 0;
 
     // CPU I/O: MEMSEL ($420D) bit 0 — ROM access speed toggle
     bool fastRom_ = false;

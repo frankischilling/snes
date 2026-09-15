@@ -37,14 +37,18 @@ Core input providers override `PollLightGun(port, gun, frame)` and return `Light
 
 ## Raster fixes
 
-The renderer previously saved registers and palettes per scanline but read tile memory and sprite attributes at VBlank. A later VRAM or OAM update could therefore change rows that had already passed. Each visible scanline now retains its tile memory and parsed objects. Backgrounds, Mode 7, and sprites render from that saved state. This adds roughly 16 MiB of memory per emulator instance.
+The renderer previously saved registers and palettes per scanline but read tile memory and sprite attributes at VBlank. A later VRAM or OAM update could therefore change rows that had already passed. Each visible scanline retains its tile memory and parsed objects. Backgrounds, Mode 7, and sprites render from that saved state.
+
+Unchanged lines share an immutable VRAM snapshot. The renderer copies 64 KiB only when a visible line first uses a new VRAM revision, then reuses the allocated storage in later frames. A frame with no visible VRAM changes needs one tile-memory snapshot instead of 224. Forced-blank uploads still create a new snapshot, preserving earlier lines. A retained mutable `VramData()` pointer enables memory comparisons before sharing snapshots, including after reset. Worst-case storage remains roughly 15 MiB for a distinct revision on each overscan line.
+
+Raster register writes are kept in separate lists for each scanline. Rendering a line no longer searches every event in the frame or allocates a temporary event list. Event order and horizontal positions are unchanged.
 
 Palette access also used incompatible timing units: the scheduler supplied horizontal dots to comparisons expressed in master clocks. It now supplies master clocks, allowing CGRAM access during HBlank and redirecting active-display accesses through the rendering latch. The PPU setter names the clock unit explicitly.
 
 ## Validation and limits
 
-Tests cover packet endings, strobe behavior, turbo transitions, gun selection, WRIO gating, beam arrival, offscreen input, automatic polling, viewport edges, and graphics-memory changes between scanlines. An integration test transfers palette data during active display and HBlank to check the clock-unit fix. The full test command and current hardware scope are listed in [original hardware support](original-hardware.md).
+Tests cover packet endings, strobe behavior, turbo transitions, gun selection, WRIO gating, beam arrival, offscreen input, automatic polling, viewport edges, and graphics-memory changes between scanlines. Snapshot tests also change VRAM on all 239 overscan lines, reuse the storage across frames, reject blocked display-time writes, and keep a mutable pointer across reset. An integration test transfers palette data during active display and HBlank to check the clock-unit fix. The full test command and current hardware scope are listed in [original hardware support](original-hardware.md).
 
 Both supplied games completed 1,800 frames with visible video and non-silent audio. The saved Contra prototype frame showed gameplay. No light-gun game was available for this check; synthetic protocol tests do not establish retail-game compatibility.
 
-Beam input uses the scheduled aim position without simulating optical brightness thresholds or sensor persistence. CPU register accesses advance hardware per bus cycle, while graphics remain sampled once per scanline. Changes within a line are therefore not reproduced at individual pixels. This does not establish optical sensor accuracy or complete hardware timing.
+Beam input uses the scheduled aim position without simulating optical brightness thresholds or sensor persistence. CPU register accesses advance hardware per bus cycle. Graphics memory is sampled once per scanline; supported display, scroll, mosaic, window and color-math register writes split the rendered line at their recorded horizontal positions. Individual tile-fetch timing and optical sensor behavior remain unmodeled.
