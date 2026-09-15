@@ -382,6 +382,7 @@ private:
         Mosaic,
         Scroll,
         WindowSelect,
+        Composition,
     };
 
     struct RasterEvent {

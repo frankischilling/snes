@@ -947,9 +947,15 @@ void Spc700::StepCycle() {
     BeginInstruction();
     if (!executor_ || pendingCycle_.kind == PendingCycleKind::None) return;
 
-    const PendingCycle cycle = pendingCycle_;
+    if (!ExecuteBusCycle(pendingCycle_)) return;
     pendingCycle_ = {};
 
+    if (activeCoroutine_ && !activeCoroutine_.done()) activeCoroutine_.resume();
+    CheckExecutor();
+    ResumeToCycleBoundary();
+}
+
+bool Spc700::ExecuteBusCycle(const PendingCycle& cycle) {
     switch (cycle.kind) {
     case PendingCycleKind::Idle:
         Idle();
@@ -961,12 +967,9 @@ void Spc700::StepCycle() {
         Write(cycle.address, cycle.data);
         break;
     case PendingCycleKind::None:
-        return;
+        break;
     }
-
-    if (activeCoroutine_ && !activeCoroutine_.done()) activeCoroutine_.resume();
-    CheckExecutor();
-    ResumeToCycleBoundary();
+    return true;
 }
 
 void Spc700::Step() {

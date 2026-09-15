@@ -141,9 +141,10 @@ void Mapping() {
         Check(c.ReadSa1(0x600001) == mask && c.ReadSa1(0x600000) == (0xa5 & mask), "Bitmap reads zero-extend individual pixels");
         c.WriteSa1(0x2225, 0x83);
         c.WriteSa1(0x006123, 9);
-        const unsigned pixel = 3 * 0x2000 + 0x123;
-        Check(((f.ram[pixel / perByte] >> ((pixel % perByte) * depth)) & mask) == (9 & mask), "Bitmap window page stride follows the selected pixel depth");
-        Check(c.ReadSa1(0x606123) == (9 & mask), "Bitmap window aliases its full pixel bank");
+        const unsigned byte = 3 * 0x800 + 0x123 / perByte;
+        Check(((f.ram[byte] >> ((0x123 % perByte) * depth)) & mask) == (9 & mask), "Bitmap window selects fixed two-kilobyte physical pages");
+        const uint32_t alias = 0x600000 + 3 * 0x800 * perByte + 0x123;
+        Check(c.ReadSa1(alias) == (9 & mask), "Bitmap window aliases the matching full pixel address");
         c.WriteSa1(0x2227, 0);
         c.WriteCpu(0x2226, 0);
         c.WriteCpu(0x2228, 15);
@@ -183,12 +184,27 @@ void Arithmetic() {
             uint64_t expected = 0;
             if (!mode) expected = static_cast<uint64_t>(signedA * signedB) & mask;
             else if (b) {
-                const uint64_t biasedDividend = static_cast<uint64_t>(signedA + int64_t(b) * 65536);
-                expected = uint16_t(biasedDividend / b) | ((biasedDividend % b) << 16);
-                if (expected & 0x80000000) expected |= uint64_t{0xff} << 32;
+                const int64_t quotient = signedA / b;
+                int64_t remainder = signedA % b;
+                if (remainder < 0) remainder = -remainder;
+                expected = uint16_t(quotient) | (uint64_t(remainder) << 16);
+            } else {
+                expected = (signedA < 0 ? 1u : 0xffffu) |
+                           (uint64_t(signedA < 0 ? -signedA : signedA) << 16);
             }
-            Check(Get(c, 0x2306, 5) == expected, "Arithmetic signed edge grid, including Euclidean division and divide by zero");
+            Check(Get(c, 0x2306, mode ? 4 : 5) == expected, "Arithmetic signed edge grid, including hardware division and divide by zero");
         }
+    }
+    struct DivisionCase { uint16_t dividend, divisor, quotient, remainder; };
+    for (const auto test : {
+        DivisionCase{0x87f8, 0xfffb, 0x0000, 0x7808},
+        DivisionCase{0x8000, 0x492a, 0xffff, 0x36d6},
+        DivisionCase{0x87f8, 0x0000, 0x0001, 0x7808},
+        DivisionCase{0x8000, 0x0000, 0x0001, 0x8000}}) {
+        c.WriteSa1(0x2250, 1);
+        Set(c, 0x2251, test.dividend); Set(c, 0x2253, test.divisor); c.Advance(10);
+        Check(Get(c, 0x2306, 4) == (uint64_t(test.remainder) << 16 | test.quotient),
+              "Division matches measured signed quotient and unsigned remainder cases");
     }
     c.WriteSa1(0x2250, 0);
     Set(c, 0x2251, 3); Set(c, 0x2253, 7); c.Advance(10);
@@ -215,7 +231,7 @@ void Arithmetic() {
 void VariableBits() {
     Fixture f;
     auto& c = f.chip;
-    constexpr unsigned source = 0xfffd;
+    constexpr unsigned source = 0xfffc;
     for (unsigned i = 0; i < 160; ++i) f.rom[source + i] = static_cast<uint8_t>(i * 59 + 0x93);
     const auto expected = [&](unsigned bit) {
         uint16_t result = 0;
@@ -225,26 +241,43 @@ void VariableBits() {
         }
         return result;
     };
+    c.WriteSa1(0x2258, 0x85);
     Set(c, 0x2259, 0xc0fffd, 3);
-    Check(Get(c, 0x230c) == expected(0), "Bit reader preloads an unaligned ROM address");
+    Check(Get(c, 0x230c) == expected(0) && Get(c, 0x230c) == expected(0),
+          "Bit reader ignores the address low bit and address writes clear automatic mode");
     for (unsigned length = 1; length <= 16; ++length) {
-        c.WriteSa1(0x2258, static_cast<uint8_t>(length & 15));
         Set(c, 0x2259, 0xc0fffd, 3);
         for (unsigned bit = 0; bit < 160; bit += length) {
             Check(Get(c, 0x230c) == expected(bit), "Manual variable-bit reads cross both word and ROM-bank boundaries");
             Check(Get(c, 0x230c) == expected(bit), "Manual port reads do not consume bits");
             c.WriteSa1(0x2258, static_cast<uint8_t>(length & 15));
         }
-        c.WriteSa1(0x2258, static_cast<uint8_t>(0x80 | (length & 15)));
         Set(c, 0x2259, 0xc0fffd, 3);
-        for (unsigned bit = 0; bit < 160; bit += length) {
+        c.WriteSa1(0x2258, static_cast<uint8_t>(0x80 | (length & 15)));
+        for (unsigned bit = length; bit < 160; bit += length) {
             Check(c.ReadSa1(0x230c) == uint8_t(expected(bit)) && c.ReadSa1(0x230c) == uint8_t(expected(bit)), "Low data reads do not advance the automatic stream");
             Check(Get(c, 0x230c) == expected(bit), "Automatic stream advances after returning the high byte");
         }
     }
-    c.WriteSa1(0x2258, 0);
-    Set(c, 0x2259, 0x00230c, 3);
-    Check(Get(c, 0x230c) == 0, "A bit pointer into the I/O port cannot recurse");
+
+    Fixture mapped(0x800000);
+    mapped.rom[0x0122] = 0x34; mapped.rom[0x0123] = 0x12;
+    mapped.rom[0x7122] = 0xef; mapped.rom[0x7123] = 0xbe;
+    mapped.rom[0x8122] = 0x78; mapped.rom[0x8123] = 0x56;
+    mapped.rom[0x400122] = 0xbc; mapped.rom[0x400123] = 0x9a;
+    Set(mapped.chip, 0x2259, 0x000123, 3);
+    Check(Get(mapped.chip, 0x230c) == 0x1234, "Bit reader mirrors low system windows to their LoROM half");
+    Set(mapped.chip, 0x2259, 0x010123, 3);
+    Check(Get(mapped.chip, 0x230c) == 0x1234, "Bit reader mirrors non-ROM blocks in other LoROM banks to bank zero");
+    Set(mapped.chip, 0x2259, 0x3f7123, 3);
+    Check(Get(mapped.chip, 0x230c) == 0xbeef, "Bit reader maps every non-ROM 32K block to bank zero while preserving its block offset");
+    Set(mapped.chip, 0x2259, 0x418123, 3);
+    Check(Get(mapped.chip, 0x230c) == 0x1234, "Bit reader mirrors banks 40-7F to bank-zero LoROM");
+    mapped.chip.WriteCpu(0x2220, 0x84);
+    Set(mapped.chip, 0x2259, 0x000123, 3);
+    Check(Get(mapped.chip, 0x230c) == 0x9abc, "Bit reader follows Super MMC projection for LoROM windows");
+    Set(mapped.chip, 0x2259, 0xc00123, 3);
+    Check(Get(mapped.chip, 0x230c) == 0x9abc, "Bit reader follows Super MMC projection for HiROM banks");
 }
 
 void Timers() {

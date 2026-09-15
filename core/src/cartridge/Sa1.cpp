@@ -287,8 +287,11 @@ uint8_t Sa1::ReadMemory(uint32_t address, uint8_t openBus, Side side, bool io) {
         if (low >= 0x3000 && low <= 0x37ff) return iram_[low & 0x7ff];
         if (low >= 0x6000 && low <= 0x7fff) {
             const uint8_t mapping = registers_[side == Side::Cpu ? 0x24 : 0x25];
-            if (side == Side::Sa1 && (mapping & 0x80))
-                return ReadBitmap(uint32_t(mapping & 0x7f) * 0x2000 + (low & 0x1fff), openBus);
+            if (side == Side::Sa1 && (mapping & 0x80)) {
+                const unsigned pixelsPerByte = 8 / BitmapDepth();
+                const uint32_t pixel = uint32_t(mapping & 0x7f) * 0x800 * pixelsPerByte + (low & 0x1fff);
+                return ReadBitmap(pixel, openBus);
+            }
             const uint32_t offset = uint32_t(mapping & 0x1f) * 0x2000 + (low & 0x1fff);
             if (side == Side::Cpu && conversionActive_) return ReadConverted(offset);
             return ReadBwram(offset, openBus);
@@ -325,10 +328,13 @@ void Sa1::WriteMemory(uint32_t address, uint8_t value, Side side) {
         if (low >= 0x3000 && low <= 0x37ff) { WriteIram(low, value, side); return; }
         if (low >= 0x6000 && low <= 0x7fff) {
             const uint8_t mapping = registers_[side == Side::Cpu ? 0x24 : 0x25];
-            if (side == Side::Sa1 && (mapping & 0x80))
-                WriteBitmap(uint32_t(mapping & 0x7f) * 0x2000 + (low & 0x1fff), value);
-            else
+            if (side == Side::Sa1 && (mapping & 0x80)) {
+                const unsigned pixelsPerByte = 8 / BitmapDepth();
+                const uint32_t pixel = uint32_t(mapping & 0x7f) * 0x800 * pixelsPerByte + (low & 0x1fff);
+                WriteBitmap(pixel, value);
+            } else {
                 WriteBwram(uint32_t(mapping & 0x1f) * 0x2000 + (low & 0x1fff), value, side);
+            }
             return;
         }
     }
@@ -439,7 +445,9 @@ void Sa1::WriteRegister(uint16_t address, uint8_t value, Side side) {
     case 0x54: StartArithmetic(); break;
     case 0x58: AdvanceBits(); break;
     case 0x5b:
-        bitAddress_ = RegisterAddress(0x59);
+        registers_[0x58] = 0;
+        bitAddress_ = RegisterAddress(0x59) & 0xfffffe;
+        StoreAddress(0x59, bitAddress_);
         bitOffset_ = 0;
         RefreshBitResult();
         break;

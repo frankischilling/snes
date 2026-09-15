@@ -124,6 +124,29 @@ struct CpuBus : ICpuBus {
     void Write(uint32_t address, uint8_t value) override { bytes[address & 0xffff] = value; }
 };
 
+void SlowSoundPortDeadline() {
+    for (Region region : {Region::NTSC, Region::PAL}) {
+        auto machine = Machine({0xea});
+        machine->GetTiming().SetRegion(region);
+        auto& sound = machine->GetSmp();
+        sound.Power();
+        sound.IoState().iplRomEnable = false;
+        sound.IoState().internalWaitStates = 2;
+        sound.r.pc = 0x200;
+        sound.Ram()[0x200] = 0x8f;
+        sound.Ram()[0x201] = 0xa5;
+        sound.Ram()[0x202] = 0xf4;
+        while (sound.CycleCount() < 13) {
+            machine->GetCpu()->idle();
+            const auto target = machine->GetTiming().MasterClocksElapsed() * Smp::kClockFrequency /
+                                machine->GetTiming().MasterClockHz();
+            Check(sound.CycleCount() == target, "SMP wait states stop exactly at the console clock deadline");
+            Check(sound.PortRead(0) == (target < 13 ? 0 : 0xa5),
+                  "Console synchronization preserves a stretched port-store deadline");
+        }
+    }
+}
+
 void InterruptMaskSampling() {
     for (uint8_t opcode : {uint8_t(0x58), uint8_t(0xc2), uint8_t(0x28)}) {
         CpuBus bus;
@@ -225,6 +248,7 @@ void DmaStartupCycle() {
 int main() {
     try {
         WordAccessesAdvanceHardware(); HBlankWithinInstruction(); SoundPortDeadlines();
+        SlowSoundPortDeadline();
         InterruptMaskSampling(); NmiInsideInstruction(); EnableNmiDuringVblank(); DmaStartupCycle();
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());

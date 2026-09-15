@@ -406,9 +406,9 @@ void Emulator::InitSubsystems() {
     // HBlank callback (not currently needed, but available)
     timing_.onHBlank = nullptr;
 
-    // 6. CPU ALU step (multiply/divide hardware pipelining during DRAM refresh)
-    cpu_->SetAluStepCallback([this]() {
-        cpuIo_.AluStep();
+    // 6. Multiply/divide clocking during CPU cycles and DRAM refresh.
+    cpu_->SetAluStepCallback([this](bool writeCycle) {
+        cpuIo_.AluStep(writeCycle);
     });
 
     // 7. AutoJoypad input source

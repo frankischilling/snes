@@ -142,9 +142,10 @@ public:
     // CPU version (for $4210 RDNMI low nibble)
     void setCpuVersion(uint8_t v) noexcept { cpuVersion_ = v; }
 
-    // ALU stepping — call once per CPU instruction cycle to advance
-    // multiply/divide hardware computation
-    void AluStep();
+    // Clock once per CPU bus/idle cycle or refresh step. For writes, preserve
+    // the busy signal sampled before the arithmetic edge completes, including
+    // refresh while DMA holds the pending write. Each write replaces the sample.
+    void AluStep(bool writeCycle = false);
 
 private:
     // Register state — following bsnes CPU::IO
@@ -201,6 +202,7 @@ private:
         uint32_t mpyctr = 0;  // multiply cycles remaining (8 down to 0)
         uint32_t divctr = 0;  // divide cycles remaining (16 down to 0)
         uint32_t shift  = 0;  // working shift register
+        bool busyOnWrite = false;
     } alu_{};
 
     // Joypad strobe latch state

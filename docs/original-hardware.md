@@ -22,6 +22,8 @@ DSP-3 uses banks `$20-$3F/$A0-$BF:$8000-$FFFF`; DSP-4 uses `$30-$3F/$B0-$BF` in 
 
 SA-1 slot boards with extended IDs `ZX3J` or `ZBPJ` accept a separate 512 KiB expansion ROM through the existing broadcast loader. MMC pages 4-7 select that ROM, an empty slot returns open bus, and the expanded console BW-RAM windows preserve WRAM at `$7E-$7F`. Expansion ROM is never exposed as writable flash storage.
 
+The SA-1 bitmap window selects a physical 2 KiB BW-RAM page before unpacking two-bit or four-bit pixels. Division uses a signed quotient truncated toward zero and a nonnegative remainder, including the measured divide-by-zero register values. The bit reader discards address bit zero, reads only ROM, mirrors non-ROM 32 KiB blocks to bank-zero LoROM, and follows Super MMC projection. Writing `$225B` loads the address and clears `$2258`, so automatic advance must be enabled afterward. Regression vectors follow [SA-1 hardware measurements](https://sneslab.net/wiki/SA-1_Hardware_Behavior). Those division measurements cover `$2306-$2309`; the existing upper-byte behavior at `$230A` remains unverified.
+
 Super FX CPU RAM windows include `$72-$73` when the board has 256 KiB of RAM. Larger RAM declarations extend the CPU map through `$7D`; `$7E-$7F` remain console WRAM. The extended ROM layout, selected by a ROM-size header value of 14 or greater, places successive ROM regions at `$00-$3F:$8000-$FFFF`, `$80-$BF:$8000-$FFFF`, `$C0-$FF`, and `$40-$6F`, covering up to 11 MiB. These CPU extensions do not widen the GSU's own 2 MiB ROM view or one-bit RAM bank register. Missing ROM regions return open bus, and ROM writes cannot alias save RAM.
 
 The GSU RAMB instruction selects bank `$70` or `$71`, and `$303C` returns zero in its reserved upper bits, as specified in [Nintendo's development manual, Book II, section 4.7](https://archive.org/stream/SNESDevManual/book2_djvu.txt). Tests exercise all 256 low-byte values supplied to RAMB and verify that banked loads/stores cannot reach CPU expansion RAM. Invalid internal GSU banks are not treated as extra ROM aliases.
@@ -32,19 +34,23 @@ SPC7110 calendar state uses a separate 24-byte `.rtc` representation: sixteen ni
 
 CPU reads, writes, and internal cycles advance hardware individually. Registers can observe an event reached during an earlier access in the same instruction. IRQ entry uses the interrupt-mask value sampled before the final cycle, including CLI, SEI, REP, SEP, and PLP. Masked IRQs still release WAI.
 
+Multiply and divide run for eight and sixteen CPU cycles. The result registers expose intermediate values, reads sample before the next arithmetic step, and trigger writes cannot restart an active operation, including its final busy cycle. Ordinary DMA pauses arithmetic; refresh contributes five steps. PLB uses a full-width stack address increment: in emulation mode, a stack pointer of `$01FF` reads `$0200` before returning to page one.
+
 DMA requests allow a CPU cycle before bus takeover. Transfers align to the DMA divider, charge startup, place source and destination accesses on separate phases, and resume the CPU at its cycle boundary. HDMA table and data accesses advance hardware as they occur and can interrupt general DMA. Refresh positions follow the divider instead of staying fixed on every scanline. The existing eight-channel modes, source-bank wrapping, and same-channel HDMA cancellation remain covered.
 
-The S-DSP advances through 32 phases per output sample. Register latches, BRR/directory reads, envelopes, noise, pitch modulation, voice mixing, echo RAM, and output timing have separate phase behavior. Each SMP bus or idle cycle advances it once.
+The S-DSP advances through 32 phases per output sample. Register latches, BRR/directory reads, envelopes, noise, pitch modulation, voice mixing, echo RAM, and output timing have separate phase behavior. Each elapsed 1.024 MHz SMP clock advances it once, including clocks spent waiting for a memory access.
 
-The SPC700 can pause at every read, write, or idle cycle. `RunUntil` stops at its requested cycle count, including inside an instruction. A console write arriving before an SMP port read is therefore visible to that read; a pending SMP store does not reach the console early. CONTROL clears and timer read-and-clear operations follow the same rule. `Step` still completes one instruction for direct processor users. Reset cancels pending work, and coroutine storage belongs to the processor so sequential thread handoff does not invalidate a suspended instruction.
+The SPC700 can pause inside an instruction or a stretched memory access. `RunUntil` stops at its requested clock count. Communication reads hold their sampled input until the read completes; pending stores do not reach the console early. CONTROL clears and timer read-and-clear operations occur on their access boundary. `Step` still completes one instruction for direct processor users. Reset cancels pending work, and coroutine storage belongs to the processor so sequential thread handoff does not invalidate a suspended instruction.
+
+The SMP TEST register selects internal and external wait states separately. I/O, idle cycles, and the enabled IPL overlay use the internal setting; other RAM accesses use the external setting. The implemented clock model uses 1, 2, 5, or 10 SMP clocks and advances the timer divider by 2, 4, 8, or 16 ticks. A TEST write finishes under the old setting. The model samples port reads midway through a stretched access, rounded to the next SMP clock, and ordinary RAM reads at its end.
 
 The frame collector drains full DSP blocks during long DMA operations. Transfers spanning several fields retain all generated audio instead of stopping at the ordinary 2,048-sample buffer limit. Video presentation still returns the latest completed field after such an operation.
 
-CPU multiply/divide results remain immediate, and a refresh penalty is drained after the current clock interval. SA-1 still advances at instruction boundaries. Its cache/contention and DMA arbitration, SMP TEST speed/wait states, finer coprocessor transactions, and analog audio behavior remain accuracy work. These limitations are separate from the resolved SPC700 port-ordering issue.
+A refresh penalty is drained after the current clock interval, and SA-1 still advances at instruction boundaries. SA-1 cache/contention and DMA arbitration, finer coprocessor transactions, and analog audio behavior remain accuracy work. [Hardware measurements of SMP TEST](https://forums.nesdev.org/viewtopic.php?start=75&t=16140) show much longer internal waits and lockups on some revisions. Those differences, sub-clock port sampling, and read/write collisions are not modeled.
 
 ## Raster rendering
 
-Visible-line writes to brightness/forced blank, BG scroll, mosaic, and window-selection registers carry their horizontal timestamps into rendering. The renderer reconstructs the state before the H=512 snapshot and draws successive spans, preserving pixels to the left of each change. VRAM, CGRAM, and OAM still use per-line snapshots; this is not a per-dot memory-fetch model. Register-specific fetch delays and changes to other rendering registers remain outside the timestamped path. HBlank writes affect the next line.
+Visible-line writes to brightness/forced blank, BG scroll, mosaic, window selection/positions/logic, main and sub-screen enables, window masks, and color-math controls carry their horizontal timestamps into rendering. This includes direct-color selection and fixed-color changes. The renderer reconstructs the state before the H=512 snapshot and draws successive spans, preserving pixels to the left of each change. VRAM, CGRAM, and OAM still use per-line snapshots; this is not a per-dot memory-fetch model. Register-specific fetch delays, active CGRAM address timing, and midline mode/geometry changes remain outside the timestamped path. HBlank writes affect the next line.
 
 Mode 7 BG1 supports direct color with and without mosaic. EXTBG BG2 continues to use CGRAM, and BG1's mosaic enable controls vertical sampling for both Mode 7 layers. Hires and pseudo-hires output pair each sub pixel with the preceding main pixel's color-math and window decisions, including at a raster-state boundary. An empty sub screen displays its palette backdrop, while main color math uses the fixed-color register without halving.
 
@@ -73,7 +79,7 @@ The memory controller follows the documented [MCC register and mapping behavior]
 
 ## Validation scope
 
-All 30 configured CTest targets passed in Release and AddressSanitizer builds on Windows with Clang 21, including the final hires fixed-color and GSU RAMBR corrections. The bundled suite has 29 targets; an optional external DMA/IRQ ROM adds the thirtieth. The Windows legacy test executable reserves an 8 MiB stack so sanitizer instrumentation can retain its large fixtures.
+All 34 configured CTest targets pass in Release and AddressSanitizer builds on Windows with Clang 21: 31 bundled tests and three optional DMA/IRQ, CPU, and SPC diagnostics. The Windows legacy test executable reserves an 8 MiB stack so sanitizer instrumentation can retain its large fixtures.
 
 Run the complete test set with:
 
@@ -84,9 +90,11 @@ ctest --test-dir out/build/release --output-on-failure
 
 Committed tests use generated programs, command streams, known output vectors, and deterministic clocks. Native 65816 programs exercise cartridge ports through the real bus. Processor tests run SA-1 and GSU programs, check their IRQs, and verify that save loading retains shared storage. Bus tests place events within instructions and verify DMA timestamps. Audio tests change registers and shared RAM across individual DSP phases.
 
-The sound-port integration tests execute console loads and stores through `$2140-$2143` and their mirrors under both PAL and NTSC clock ratios. They check deadlines in both communication directions. The new test fails against the preserved pre-change core because an SMP store becomes visible too early. The extended Super FX integration test also fails against that core because console accesses never reach RAM banks `$72-$73`.
+The CPU arithmetic tests check all 65,536 eight-bit products and 657,664 division cases, plus partial results, busy writes, reset, refresh, and DMA behavior. Final-cycle trigger tests cover six-, eight-, and twelve-master-clock accesses and a DMA transfer that holds the pending write across refresh. SMP tests cover all sixteen internal/external wait combinations, timer and DSP clocks, held port reads, delayed stores, IPL mapping, reset during a wait, and halted execution. PAL and NTSC console tests also verify stretched port-store deadlines.
 
-Independent before/after SPC700 traces matched for 2,048 cases: all 256 opcodes, four deterministic RAM/register/flag seeds, and two branch paths. Comparisons include ordered read/write/idle events, cycle counts, registers, halt state, and complete RAM hashes. The committed segmented-execution tests also cover reset during an instruction, CONTROL clears, timer reads, halt deadlines, DSP phase boundaries, and sequential cross-thread resume/destruction.
+The sound-port integration tests execute console loads and stores through `$2140-$2143` and their mirrors under both PAL and NTSC clock ratios. They check deadlines in both communication directions. In the earlier audit, these tests exposed an SMP store becoming visible too early and console accesses failing to reach Super FX RAM banks `$72-$73`.
+
+The earlier audit compared SPC700 traces for 2,048 cases: all 256 opcodes, four deterministic RAM/register/flag seeds, and two branch paths. Ordered read/write/idle events, cycle counts, registers, halt state, and complete RAM hashes matched. The committed segmented-execution tests also cover reset during an instruction, CONTROL clears, timer reads, halt deadlines, DSP phase boundaries, and sequential cross-thread resume/destruction.
 
 For external text diagnostics, `snes_rom_diagnostic` reads a 32-column ASCII tilemap directly from backing VRAM without touching PPU read latches. It prints stable result pages. `--expect` requires exact result lines and returns a failing exit status when any are missing; execution alone is not a diagnostic pass. For example, with an existing [SnesTests checkout](https://github.com/SourMesen/SnesTests):
 
@@ -98,11 +106,21 @@ ctest --test-dir out/build/release -R snes_external_dma_irq --output-on-failure
 
 The DMA/IRQ fixture checks all 19 source-defined results from checkout `71c50e3272cb43d9042b1630e4dbbe7ac2f0ca29`. Its two SEI sentinels are `$00FF`, as written by the ROM's 8-bit test routine. The opcode timing ROM produced 839 measurements across 54 result pages. Comparisons exposed differences in stack-relative indexed and PER timing, so dedicated tests retain the seven/eight-cycle indexed accesses and six-cycle PER specified by the [W65C816S datasheet, table 5-4](https://www.westerndesigncenter.com/wdc/documentation/w65c816s.pdf). Absolute counter/startup-phase differences remain unclassified; the timing ROMs are not claimed as fully passing.
 
+The independent [CPU/SPC diagnostic release v1.4](https://github.com/gilyon/snes-tests/releases/tag/v1.4) adds 1,610 65C816 cases and 1,368 SPC700 cases. Both ROMs reach their final `Success` line. The full CPU ROM exposed the PLB stack-boundary error, which now has a separate regression. These ROMs test instruction results, flags, and addressing behavior; they do not establish cycle timing, hardware interrupts, or DSP accuracy. Their SLEEP/STOP and WAI/STP exclusions have separate core tests.
+
+With that release extracted locally, enable both ROMs without downloading anything during the build:
+
+```powershell
+cmake --preset release -DSNES_PROCESSOR_DIAGNOSTIC_DIR=C:/path/to/snes-tests
+cmake --build --preset build-release
+ctest --test-dir out/build/release -R 'snes_external_(cpu|spc)' --output-on-failure
+```
+
 The earlier cartridge and DSP audit exercised these paths:
 
 | Device | Comparison scope and result |
 | --- | --- |
-| SA-1 | 77,493 byte/result comparisons across arithmetic, bit reads, mapping, DMA, and character conversion. Seven accumulator overflow-flag disagreements remain deliberate: the implementation detects signed 40-bit overflow. Hardware confirmation is still needed. Processor instruction execution was tested separately, not by this comparison. |
+| SA-1 | 77,493 byte/result comparisons across arithmetic, bit reads, mapping, DMA, and character conversion at the time of that audit. Current bitmap, division, and bit-reader regressions cover the later corrections described above. Seven accumulator overflow-flag disagreements remain deliberate: the implementation detects signed 40-bit overflow. Hardware confirmation is still needed. Processor instruction execution was tested separately. |
 | Super FX | 8,660 programs; register, flag, bank, and RAM results matched at the time of that audit. The current RAMBR reserved-bit behavior follows the hardware specification above. Plotting, cache storage, and timing also have independent tests. |
 | DSP-3 | 935,231 byte/status/result comparisons matched, including coefficient ROM, geometry, planar data, 1,500 generated decode streams, and 250 terrain/path streams. |
 | DSP-4 | 1,620,513 comparisons matched, including fixed commands, OAM budgets, 500 road/lighting streams, 300 polygon streams, and 300 object streams. |
@@ -124,6 +142,6 @@ Each supplied game completed a 9,000-frame integration run from reset, with Star
 | Super Mario RPG | 7,945 | 7,279,463 | SA-1 opening sequence |
 | Super Mario All-Stars + Super Mario World | 8,877 | 8,477,772 | Game selection menu |
 
-The four retail titles also ran in the independent comparison build. Their captures reached corresponding menus or sequences, with timing and animation differences; these are not pixel-identical comparisons. That build selected HiROM for the Contra prototype and produced no output, so it provides no valid game comparison for that image. The local core's prototype run was checked separately.
+In the earlier audit, the four retail titles also ran in an independent comparison build. Their captures reached corresponding menus or sequences, with timing and animation differences; these were not pixel-identical comparisons. That build selected HiROM for the Contra prototype and produced no output, so it provided no valid game comparison for that image. The local core's prototype run was checked separately.
 
 These runs check boot, sustained execution, output generation, and limited Start input. They do not establish complete playthroughs, every controller interaction, or commercial compatibility for every enhancement chip. GSU and other chips without supplied game images retain the synthetic and command-level coverage described above. Diagnostic BMP capture now converts the core's ABGR pixels to BMP channel order, so capture colors can be compared correctly.

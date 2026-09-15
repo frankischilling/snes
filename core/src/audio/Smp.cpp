@@ -111,26 +111,25 @@ void Smp::Power() {
     timer0_ = {};
     timer1_ = {};
     timer2_ = {};
-
+    busWait_ = {};
 }
 
 // Bus interface — Spc700 overrides
 
 void Smp::Idle() {
-    cycles_++;
-    // Default idle: step timers by 2 ticks (standard internal wait)
-    StepTimers(2);
-    tickDsp();
+    BusWait wait;
+    while (!ClockBusCycle(PendingCycle{PendingCycleKind::Idle}, wait)) {}
 }
 
 uint8_t Smp::Read(uint16_t address) {
-    cycles_++;
-    // Step timers — internal addresses ($00F0-$00FF, IPL ROM) use internal
-    // wait states, external addresses use external wait states.
-    // For simplicity, default to 2 ticks (standard wait state 0).
-    StepTimers(2);
-    tickDsp();
+    BusWait wait;
+    uint8_t result = 0;
+    const PendingCycle cycle{PendingCycleKind::Read, address, 0, &result};
+    while (!ClockBusCycle(cycle, wait)) {}
+    return result;
+}
 
+uint8_t Smp::ReadBus(uint16_t address) {
     uint8_t data = readRam(address);
     // I/O registers at $00F0-$00FF override RAM reads
     if ((address & 0xFFF0) == 0x00F0) {
@@ -140,11 +139,12 @@ uint8_t Smp::Read(uint16_t address) {
 }
 
 void Smp::Write(uint16_t address, uint8_t data) {
-    cycles_++;
-    // Step timers
-    StepTimers(2);
-    tickDsp();
+    BusWait wait;
+    const PendingCycle cycle{PendingCycleKind::Write, address, data, nullptr};
+    while (!ClockBusCycle(cycle, wait)) {}
+}
 
+void Smp::WriteBus(uint16_t address, uint8_t data) {
     // Writes always go to underlying RAM (even in I/O region)
     writeRam(address, data);
     // I/O registers at $00F0-$00FF get additional handling
@@ -160,14 +160,65 @@ void Smp::tickDsp() {
     if (dsp_) dsp_->Tick();
 }
 
-// Batch execution — stop exactly at the requested bus-cycle deadline.
+// Batch execution — stop exactly at the requested 1.024 MHz clock deadline.
 
 void Smp::RunUntil(uint64_t targetCycles) {
-    // StepCycle idles a halted CPU and can also pause a live instruction before
-    // its next bus access, keeping timers and DSP on the same clock deadline.
+    // StepCycle can pause an instruction inside a stretched access, keeping
+    // timers and DSP on the same clock deadline even while the CPU is halted.
     while (cycles_ < targetCycles) {
         StepCycle();
     }
+}
+
+bool Smp::ExecuteBusCycle(const PendingCycle& cycle) {
+    return ClockBusCycle(cycle, busWait_);
+}
+
+bool Smp::ClockBusCycle(const PendingCycle& cycle, BusWait& wait) {
+    if (!wait.duration) {
+        // TEST divides internal and external accesses independently. This
+        // deterministic model uses the regular ratios; some S-SMP revisions
+        // have much longer internal waits or lock up at the slowest settings.
+        static constexpr uint8_t durations[]{1, 2, 5, 10};
+        static constexpr uint8_t timerTicks[]{2, 4, 8, 16};
+        const bool internal = cycle.kind == PendingCycleKind::Idle ||
+            (cycle.address & 0xfff0) == 0x00f0 ||
+            (cycle.address >= 0xffc0 && io_.iplRomEnable);
+        const unsigned setting = (internal ? io_.internalWaitStates : io_.externalWaitStates) & 3;
+        wait.duration = durations[setting];
+        wait.timerTicks = timerTicks[setting];
+    }
+
+    const unsigned previousTicks = unsigned(wait.elapsed) * wait.timerTicks / wait.duration;
+    ++wait.elapsed;
+    ++cycles_;
+    const unsigned nextTicks = unsigned(wait.elapsed) * wait.timerTicks / wait.duration;
+    StepTimers(nextTicks - previousTicks);
+    tickDsp();
+
+    // Model the communication input latch at the midpoint and hold it through
+    // completion. Sub-clock sampling and collisions are not represented.
+    const bool inputPort = cycle.kind == PendingCycleKind::Read &&
+                           (cycle.address & 0xfffc) == 0x00f4;
+    if (inputPort && !wait.sampled && 2 * wait.elapsed >= wait.duration) {
+        wait.readData = ReadBus(cycle.address);
+        wait.sampled = true;
+    }
+    if (wait.elapsed < wait.duration) return false;
+
+    switch (cycle.kind) {
+    case PendingCycleKind::Read:
+        *cycle.readResult = wait.sampled ? wait.readData : ReadBus(cycle.address);
+        break;
+    case PendingCycleKind::Write:
+        WriteBus(cycle.address, cycle.data);
+        break;
+    case PendingCycleKind::Idle:
+    case PendingCycleKind::None:
+        break;
+    }
+    wait = {};
+    return true;
 }
 
 // Timer stepping — advance all three timers by the given clock ticks

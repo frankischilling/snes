@@ -675,18 +675,21 @@ int main() {
         assert(cpuIo.hIrqEnabled() == false);
         assert(cpuIo.autoJoypadPoll() == false);
 
-        // 8c: $4202-$4203 multiply (fast math)
+        // 8c: $4202-$4203 multiply
         cpuIo.Write(0x4202, 12);    // WRMPYA = 12
         cpuIo.Write(0x4203, 13);    // WRMPYB = 13  → triggers multiply
-        assert(cpuIo.rdmpy() == 156);  // 12 × 13 = 156
-        // bsnes: rddiv = (wrmpyb << 8) | wrmpya after multiply trigger
+        assert(cpuIo.rdmpy() == 0);
         assert(cpuIo.rddiv() == ((13 << 8) | 12));
+        for (int cycle = 0; cycle < 8; ++cycle) cpuIo.AluStep();
+        assert(cpuIo.rdmpy() == 156);  // 12 × 13 = 156
+        assert(cpuIo.rddiv() == 13);
 
-        // 8d: $4204-$4206 divide (fast math)
+        // 8d: $4204-$4206 divide
         cpuIo.Write(0x4204, 0x00);  // WRDIVL = 0 (1000 = 0x03E8)
         cpuIo.Write(0x4204, 0xE8);  // WRDIVL = 0xE8
         cpuIo.Write(0x4205, 0x03);  // WRDIVH = 0x03  → wrdiva = 0x03E8 = 1000
         cpuIo.Write(0x4206, 7);     // WRDIVB = 7  → triggers divide
+        for (int cycle = 0; cycle < 16; ++cycle) cpuIo.AluStep();
         assert(cpuIo.rddiv() == 142);  // 1000 / 7 = 142
         assert(cpuIo.rdmpy() == 6);    // 1000 % 7 = 6
 
@@ -694,6 +697,7 @@ int main() {
         cpuIo.Write(0x4204, 0x64);  // WRDIVL
         cpuIo.Write(0x4205, 0x00);  // WRDIVH → wrdiva = 100
         cpuIo.Write(0x4206, 0x00);  // WRDIVB = 0
+        for (int cycle = 0; cycle < 16; ++cycle) cpuIo.AluStep();
         assert(cpuIo.rddiv() == 0xFFFF);  // div by zero → 0xFFFF
         assert(cpuIo.rdmpy() == 100);     // remainder = dividend
 
@@ -824,6 +828,7 @@ int main() {
         // Write multiply via bus and read result
         bus.Write(0x004202, 25);  // WRMPYA
         bus.Write(0x004203, 10);  // WRMPYB → result = 250
+        for (int cycle = 0; cycle < 8; ++cycle) cpuIo.AluStep();
         uint8_t rlo = bus.Read(0x004216);  // RDMPYL
         uint8_t rhi = bus.Read(0x004217);  // RDMPYH
         assert((rhi << 8 | rlo) == 250);
@@ -9285,7 +9290,7 @@ int main() {
             cpu.Reset();
 
             int aluCount = 0;
-            cpu.SetAluStepCallback([&aluCount]() {
+            cpu.SetAluStepCallback([&aluCount](bool) {
                 aluCount++;
             });
 
@@ -9307,7 +9312,7 @@ int main() {
             // Track state transitions through the ALU callback
             // At each ALU callback, we know we just finished one (6+2) sub-step
             std::vector<uint8_t> statesAtAlu;
-            cpu.SetAluStepCallback([&cpu, &statesAtAlu]() {
+            cpu.SetAluStepCallback([&cpu, &statesAtAlu](bool) {
                 // Right after the 2-clock interleave, state should be 2
                 statesAtAlu.push_back(cpu.DramRefreshState());
             });
@@ -9419,7 +9424,7 @@ int main() {
             int refreshCount = 0;
             int aluCount = 0;
 
-            cpu.SetAluStepCallback([&aluCount]() {
+            cpu.SetAluStepCallback([&aluCount](bool) {
                 aluCount++;
             });
 

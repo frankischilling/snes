@@ -177,6 +177,34 @@ void WaitInterrupt() {
     Check("Masked IRQ leaves stack alone", unsigned(bus.writes.size()), 0);
 }
 
+void PullBankBoundaries() {
+    struct Case { bool emulation; unsigned stack, address, finalStack; };
+    for (const auto& test : {Case{true, 0x1ff, 0x200, 0x100},
+                             Case{true, 0x1fe, 0x1ff, 0x1ff},
+                             Case{false, 0x1ff, 0x200, 0x200},
+                             Case{false, 0xffff, 0, 0}}) {
+        for (uint8_t value : {uint8_t{0}, uint8_t{0x3d}, uint8_t{0x80}}) {
+            Bus bus;
+            SnesCpu cpu(bus);
+            cpu.Reset();
+            auto& r = cpu.regs();
+            r.e = test.emulation;
+            r.s = uint16_t(test.stack);
+            r.p = 0x7f;
+            bus.ram[0x8000] = 0xab;
+            bus.ram[test.address] = value;
+            Check("PLB takes four cycles at the stack boundary", cpu.Step(), 24);
+            Check("PLB reads the full-width incremented stack address", r.db, value);
+            Check("PLB restores the emulation stack page after the read", r.s, test.finalStack);
+            Check("PLB updates only negative and zero flags", r.p,
+                  (0x7f & ~0x82) | (value & 0x80) | (value == 0 ? 2 : 0));
+            bus.ram[r.pc] = 0x48;
+            cpu.Step();
+            Check("Push following PLB uses the restored stack pointer", bus.writes.back(), test.finalStack);
+        }
+    }
+}
+
 void StackInstructionTiming() {
     // W65C816S table 5-4: (d,S),Y takes seven cycles with an 8-bit
     // accumulator, eight with a 16-bit accumulator; PER always takes six.
@@ -252,7 +280,7 @@ void Stop() {
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "stop") Stop();
-    else { InterruptStack(); ExtendedStackInstructions(); WaitInterrupt(); StackInstructionTiming(); }
+    else { InterruptStack(); ExtendedStackInstructions(); WaitInterrupt(); StackInstructionTiming(); PullBankBoundaries(); }
     std::printf("%d CPU checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

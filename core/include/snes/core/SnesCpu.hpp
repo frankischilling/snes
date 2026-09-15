@@ -10,8 +10,8 @@
 //   - NMI / IRQ state machine (edge-detect NMI, level-detect IRQ)
 //   - lastCycle() for interrupt edge sampling
 //   - Cycle counter
-//   - DMA hooks (stubbed for now)
-//   - DRAM refresh (stubbed for now)
+//   - DMA scheduling hooks
+//   - DRAM refresh and multiply/divide clocking
 //
 // The old ICpuBus interface is preserved as a simple intermediary so that
 // existing tests and the Emulator can plug in a bus implementation.
@@ -67,9 +67,9 @@ public:
     /// advance the multiply/divide hardware pipeline.
     void ApplyDramRefreshPenalty();
 
-    /// Set the callback invoked during each DRAM refresh sub-step to
-    /// advance the ALU multiply/divide hardware (CpuIoRegisters::AluStep).
-    using AluStepCallback = std::function<void()>;
+    /// Advance multiply/divide after reads/idles, before writes, and during
+    /// each DRAM refresh sub-step. The argument is true for a write edge.
+    using AluStepCallback = std::function<void(bool)>;
     void SetAluStepCallback(AluStepCallback cb) { onAluStep_ = std::move(cb); }
 
     /// Returns true while DRAM refresh bus-halt is active (state 1).
@@ -112,7 +112,7 @@ private:
     // DRAM refresh state: 0=idle, 1=bus-halt (6 clocks), 2=interleave (2 clocks)
     uint8_t dramRefreshState_ = 0;
 
-    // ALU step callback (called 5× during DRAM refresh, once per sub-step)
+    // ALU step callback for CPU cycles and the five refresh sub-steps.
     AluStepCallback onAluStep_;
     std::function<void(uint32_t)> onClock_;
     std::function<void(uint32_t)> beforeCycle_;

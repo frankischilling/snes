@@ -233,6 +233,68 @@ void Ppu::ApplyRasterEvent(IO& state, const RasterEvent& event, bool after) {
             copyColorSelection(state.col.window, value.col.window);
         }
         break;
+    case RasterEventType::Composition:
+        switch (event.index) {
+        case 0x26: state.window.oneLeft = value.window.oneLeft; break;
+        case 0x27: state.window.oneRight = value.window.oneRight; break;
+        case 0x28: state.window.twoLeft = value.window.twoLeft; break;
+        case 0x29: state.window.twoRight = value.window.twoRight; break;
+        case 0x2a:
+            state.bg1.window.mask = value.bg1.window.mask;
+            state.bg2.window.mask = value.bg2.window.mask;
+            state.bg3.window.mask = value.bg3.window.mask;
+            state.bg4.window.mask = value.bg4.window.mask;
+            break;
+        case 0x2b:
+            state.obj.window.mask = value.obj.window.mask;
+            state.col.window.mask = value.col.window.mask;
+            break;
+        case 0x2c:
+            state.bg1.aboveEnable = value.bg1.aboveEnable;
+            state.bg2.aboveEnable = value.bg2.aboveEnable;
+            state.bg3.aboveEnable = value.bg3.aboveEnable;
+            state.bg4.aboveEnable = value.bg4.aboveEnable;
+            state.obj.aboveEnable = value.obj.aboveEnable;
+            break;
+        case 0x2d:
+            state.bg1.belowEnable = value.bg1.belowEnable;
+            state.bg2.belowEnable = value.bg2.belowEnable;
+            state.bg3.belowEnable = value.bg3.belowEnable;
+            state.bg4.belowEnable = value.bg4.belowEnable;
+            state.obj.belowEnable = value.obj.belowEnable;
+            break;
+        case 0x2e:
+            state.bg1.window.aboveEnable = value.bg1.window.aboveEnable;
+            state.bg2.window.aboveEnable = value.bg2.window.aboveEnable;
+            state.bg3.window.aboveEnable = value.bg3.window.aboveEnable;
+            state.bg4.window.aboveEnable = value.bg4.window.aboveEnable;
+            state.obj.window.aboveEnable = value.obj.window.aboveEnable;
+            break;
+        case 0x2f:
+            state.bg1.window.belowEnable = value.bg1.window.belowEnable;
+            state.bg2.window.belowEnable = value.bg2.window.belowEnable;
+            state.bg3.window.belowEnable = value.bg3.window.belowEnable;
+            state.bg4.window.belowEnable = value.bg4.window.belowEnable;
+            state.obj.window.belowEnable = value.obj.window.belowEnable;
+            break;
+        case 0x30:
+            state.col.directColor = value.col.directColor;
+            state.col.blendMode = value.col.blendMode;
+            state.col.window.belowMask = value.col.window.belowMask;
+            state.col.window.aboveMask = value.col.window.aboveMask;
+            break;
+        case 0x31:
+            std::copy_n(value.col.enable, SourceCount, state.col.enable);
+            state.col.halve = value.col.halve;
+            state.col.mathMode = value.col.mathMode;
+            break;
+        case 0x32:
+            state.col.fixedColor = value.col.fixedColor;
+            break;
+        default:
+            break;
+        }
+        break;
     }
 }
 
@@ -979,35 +1041,60 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     }
 
     // $2126 — WH0 (window 1 left position)
-    case 0x2126: { io_.window.oneLeft  = data; return; }
+    case 0x2126: {
+        const IO before = io_;
+        io_.window.oneLeft = data;
+        RecordRasterEvent(RasterEventType::Composition, 0x26, before);
+        return;
+    }
 
     // $2127 — WH1 (window 1 right position)
-    case 0x2127: { io_.window.oneRight = data; return; }
+    case 0x2127: {
+        const IO before = io_;
+        io_.window.oneRight = data;
+        RecordRasterEvent(RasterEventType::Composition, 0x27, before);
+        return;
+    }
 
     // $2128 — WH2 (window 2 left position)
-    case 0x2128: { io_.window.twoLeft  = data; return; }
+    case 0x2128: {
+        const IO before = io_;
+        io_.window.twoLeft = data;
+        RecordRasterEvent(RasterEventType::Composition, 0x28, before);
+        return;
+    }
 
     // $2129 — WH3 (window 2 right position)
-    case 0x2129: { io_.window.twoRight = data; return; }
+    case 0x2129: {
+        const IO before = io_;
+        io_.window.twoRight = data;
+        RecordRasterEvent(RasterEventType::Composition, 0x29, before);
+        return;
+    }
 
     // $212A — WBGLOG (window mask logic for BG layers)
     case 0x212A: {
+        const IO before = io_;
         io_.bg1.window.mask = (data >> 0) & 3;
         io_.bg2.window.mask = (data >> 2) & 3;
         io_.bg3.window.mask = (data >> 4) & 3;
         io_.bg4.window.mask = (data >> 6) & 3;
+        RecordRasterEvent(RasterEventType::Composition, 0x2a, before);
         return;
     }
 
     // $212B — WOBJLOG (window mask logic for OBJ/color)
     case 0x212B: {
+        const IO before = io_;
         io_.obj.window.mask = (data >> 0) & 3;
         io_.col.window.mask = (data >> 2) & 3;
+        RecordRasterEvent(RasterEventType::Composition, 0x2b, before);
         return;
     }
 
     // $212C — TM (main screen designation)
     case 0x212C: {
+        const IO before = io_;
         io_.bg1.aboveEnable = (data >> 0) & 1;
         io_.bg2.aboveEnable = (data >> 1) & 1;
         io_.bg3.aboveEnable = (data >> 2) & 1;
@@ -1022,11 +1109,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
                          io_.bg1.aboveEnable ? 1 : 0,
                          io_.obj.aboveEnable ? 1 : 0);
         }
+        RecordRasterEvent(RasterEventType::Composition, 0x2c, before);
         return;
     }
 
     // $212D — TS (sub screen designation)
     case 0x212D: {
+        const IO before = io_;
         io_.bg1.belowEnable = (data >> 0) & 1;
         io_.bg2.belowEnable = (data >> 1) & 1;
         io_.bg3.belowEnable = (data >> 2) & 1;
@@ -1041,40 +1130,48 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
                          io_.bg1.belowEnable ? 1 : 0,
                          io_.obj.belowEnable ? 1 : 0);
         }
+        RecordRasterEvent(RasterEventType::Composition, 0x2d, before);
         return;
     }
 
     // $212E — TMW (window mask for main screen)
     case 0x212E: {
+        const IO before = io_;
         io_.bg1.window.aboveEnable = (data >> 0) & 1;
         io_.bg2.window.aboveEnable = (data >> 1) & 1;
         io_.bg3.window.aboveEnable = (data >> 2) & 1;
         io_.bg4.window.aboveEnable = (data >> 3) & 1;
         io_.obj.window.aboveEnable = (data >> 4) & 1;
+        RecordRasterEvent(RasterEventType::Composition, 0x2e, before);
         return;
     }
 
     // $212F — TSW (window mask for sub screen)
     case 0x212F: {
+        const IO before = io_;
         io_.bg1.window.belowEnable = (data >> 0) & 1;
         io_.bg2.window.belowEnable = (data >> 1) & 1;
         io_.bg3.window.belowEnable = (data >> 2) & 1;
         io_.bg4.window.belowEnable = (data >> 3) & 1;
         io_.obj.window.belowEnable = (data >> 4) & 1;
+        RecordRasterEvent(RasterEventType::Composition, 0x2f, before);
         return;
     }
 
     // $2130 — CGWSEL (color addition select)
     case 0x2130: {
+        const IO before = io_;
         io_.col.directColor      = (data >> 0) & 1;
         io_.col.blendMode        = (data >> 1) & 1;
         io_.col.window.belowMask = (data >> 4) & 3;
         io_.col.window.aboveMask = (data >> 6) & 3;
+        RecordRasterEvent(RasterEventType::Composition, 0x30, before);
         return;
     }
 
     // $2131 — CGADDSUB (color math designation)
     case 0x2131: {
+        const IO before = io_;
         io_.col.enable[Source::BG1 ] = (data >> 0) & 1;
         io_.col.enable[Source::BG2 ] = (data >> 1) & 1;
         io_.col.enable[Source::BG3 ] = (data >> 2) & 1;
@@ -1084,15 +1181,18 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
         io_.col.enable[Source::COL ] = (data >> 5) & 1;
         io_.col.halve               = (data >> 6) & 1;
         io_.col.mathMode            = (data >> 7) & 1;
+        RecordRasterEvent(RasterEventType::Composition, 0x31, before);
         return;
     }
 
     // $2132 — COLDATA (fixed color data)
     case 0x2132: {
+        const IO before = io_;
         uint16_t intensity = data & 0x1F;
         if (data & 0x20) io_.col.fixedColor = (io_.col.fixedColor & 0b11111'11111'00000) | (intensity <<  0);
         if (data & 0x40) io_.col.fixedColor = (io_.col.fixedColor & 0b11111'00000'11111) | (intensity <<  5);
         if (data & 0x80) io_.col.fixedColor = (io_.col.fixedColor & 0b00000'11111'11111) | (intensity << 10);
+        RecordRasterEvent(RasterEventType::Composition, 0x32, before);
         return;
     }
 

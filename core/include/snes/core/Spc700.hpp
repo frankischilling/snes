@@ -92,7 +92,7 @@ public:
     // Execution
     void Power();             // Reset to power-on state
     void Step();              // Execute one instruction
-    void StepCycle();         // Execute exactly one bus/idle cycle
+    void StepCycle();         // Execute one bus tick; device waits may retain a cycle
     uint64_t CycleCount() const { return cycles_; }
     [[nodiscard]] bool InstructionInProgress() const noexcept;
 
@@ -186,6 +186,10 @@ protected:
         uint8_t data = 0;
         uint8_t* readResult = nullptr;
     };
+
+    // Return false while the device is stretching this bus operation. The
+    // coroutine resumes only after the read, write or idle operation completes.
+    virtual bool ExecuteBusCycle(const PendingCycle& cycle);
 
     struct IdleCycle {
         Spc700* cpu;

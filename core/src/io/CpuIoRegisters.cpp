@@ -184,6 +184,8 @@ uint8_t CpuIoRegisters::Read(uint32_t addr, uint8_t openBus) {
 // $4017 writes are ignored (hardware behavior).
 
 void CpuIoRegisters::Write(uint32_t addr, uint8_t data) {
+    const bool busyOnWrite = alu_.busyOnWrite;
+    alu_.busyOnWrite = false;
     switch (addr & 0xFFFF) {
 
     // $4016 JOYSER0 — joypad strobe
@@ -236,21 +238,17 @@ void CpuIoRegisters::Write(uint32_t addr, uint8_t data) {
 
     // $4203 WRMPYB — multiplier (triggers multiplication)
     //
-    // bsnes: writing WRMPYB starts an 8-cycle multiplication.
-    // We implement "fast math" (instant result) since we don't yet have
-    // cycle-accurate ALU stepping wired into the timing loop.
-    // The AluStep() method is provided for future cycle-accurate mode.
+    // The result registers expose the shift/add operation over eight cycles.
+    // A second trigger clears the accumulator but cannot restart a busy ALU.
     case 0x4203:
         rdmpy_ = 0;
-        if (alu_.mpyctr || alu_.divctr) return;
+        if (busyOnWrite || alu_.mpyctr || alu_.divctr) return;
 
         wrmpyb_ = data;
         rddiv_ = static_cast<uint16_t>((wrmpyb_ << 8) | wrmpya_);
 
-        // Fast math: compute result immediately
-        rdmpy_ = static_cast<uint16_t>(
-            static_cast<uint16_t>(wrmpya_) * static_cast<uint16_t>(wrmpyb_)
-        );
+        alu_.mpyctr = 8;
+        alu_.shift = wrmpyb_;
         return;
 
     // $4204 WRDIVL — dividend low
@@ -265,21 +263,15 @@ void CpuIoRegisters::Write(uint32_t addr, uint8_t data) {
 
     // $4206 WRDIVB — divisor (triggers division)
     //
-    // Fast math mode: compute result immediately.
+    // Division exposes its quotient and remainder over sixteen cycles.
     case 0x4206:
         rdmpy_ = wrdiva_;  // remainder defaults to dividend
-        if (alu_.mpyctr || alu_.divctr) return;
+        if (busyOnWrite || alu_.mpyctr || alu_.divctr) return;
 
         wrdivb_ = data;
 
-        // Fast math: compute result immediately
-        if (wrdivb_) {
-            rddiv_ = static_cast<uint16_t>(wrdiva_ / wrdivb_);
-            rdmpy_ = static_cast<uint16_t>(wrdiva_ % wrdivb_);
-        } else {
-            rddiv_ = 0xFFFF;
-            rdmpy_ = wrdiva_;
-        }
+        alu_.divctr = 16;
+        alu_.shift = static_cast<uint32_t>(wrdivb_) << 16;
         return;
 
     // $4207 HTIMEL — H-counter IRQ target (low 8 bits of 9-bit value)
@@ -334,20 +326,21 @@ void CpuIoRegisters::Write(uint32_t addr, uint8_t data) {
 
 // AluStep — advance multiply/divide by one cycle
 //
-// This implements the cycle-accurate ALU pipeline from bsnes's aluEdge().
-// Call this once per CPU read/write cycle (after the bus access).
-//
-// In fast-math mode (default), $4203/$4206 writes compute results instantly,
-// so mpyctr/divctr stay at 0 and this is a no-op.  When cycle-accurate ALU
-// is enabled, $4203 sets mpyctr=8, and $4206 sets divctr=16.
+// Reads and idle cycles clock the ALU after the access; writes clock it before
+// the access. Refresh contributes five more edges while ordinary DMA pauses it.
 
-void CpuIoRegisters::AluStep() {
+void CpuIoRegisters::AluStep(bool writeCycle) {
+    // Capture at each CPU write edge. DMA can delay that write across refresh,
+    // whose arithmetic edges must not replace its saved acceptance decision.
+    // A following CPU write takes a fresh sample even if this one targets RAM.
+    if (writeCycle) alu_.busyOnWrite = alu_.mpyctr || alu_.divctr;
     if (alu_.mpyctr) {
         alu_.mpyctr--;
-        if (alu_.shift & 1) {
-            rdmpy_ += wrmpya_;
+        if (rddiv_ & 1) {
+            rdmpy_ += static_cast<uint16_t>(alu_.shift);
         }
-        alu_.shift >>= 1;
+        rddiv_ >>= 1;
+        alu_.shift <<= 1;
     }
 
     if (alu_.divctr) {
