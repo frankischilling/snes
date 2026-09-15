@@ -53,8 +53,13 @@ struct Output : IVideoOutput, IAudioOutput, IInputProvider {
         word(0, 4); word(54, 4); word(40, 4);
         word(last.width, 4); word(last.height, 4); word(1, 2); word(32, 2);
         for (int i = 0; i < 6; ++i) word(0, 4);
-        for (unsigned y = last.height; y-- > 0;)
-            for (unsigned x = 0; x < last.width; ++x) word(last.pixels[y * last.width + x], 4);
+        for (unsigned y = last.height; y-- > 0;) {
+            for (unsigned x = 0; x < last.width; ++x) {
+                // The core stores ABGR words; BMP stores blue first in memory.
+                const uint32_t pixel = last.pixels[y * last.width + x];
+                word((pixel & 0xff00ff00u) | ((pixel & 0xffu) << 16) | ((pixel >> 16) & 0xffu), 4);
+            }
+        }
         return bool(file);
     }
 };

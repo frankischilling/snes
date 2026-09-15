@@ -91,7 +91,7 @@ struct SuperFx::Impl {
     }
     static Port BankPort(uint8_t bank) {
         if (bank < 0x60) return Port::Rom;
-        if (bank >= 0x70 && bank <= 0x73) return Port::Ram;
+        if (bank >= 0x70 && bank <= 0x71) return Port::Ram;
         return Port::None;
     }
     uint8_t RamByte(uint32_t address) const {
@@ -515,7 +515,7 @@ struct SuperFx::Impl {
                     if (!(mode & 2)) SetColor(co_await RomRead{*this});
                     else if (mode == 2) {
                         co_await Wait{*this, ramRemaining, ramRemaining ? Port::Ram : Port::None};
-                        ramBank = uint8_t(input & 3);
+                        ramBank = uint8_t(input & 1);
                     } else {
                         co_await RomRead{*this};
                         romBank = uint8_t(input & 0x7f);
@@ -589,19 +589,45 @@ struct SuperFx::Impl {
         }
     }
 
+    bool ExpandedRom() const { return rom.size() > 0x7fd7 && rom[0x7fd7] >= 14; }
+
     bool CpuRamAddress(uint32_t address, uint32_t& offset) const {
         const unsigned bank = (address >> 16) & 0xff;
         const unsigned low = address & 0xffff;
         if (IoBank(address) && low >= 0x6000 && low < 0x8000) { offset = low & 0x1fff; return true; }
         // Four-megabyte boards connect the entire upper linear window to ROM.
         // Smaller boards expose only F0/F1 as aliases of the first two RAM banks.
-        if (bank >= 0xf2 || (rom.size() > 0x200000 && bank >= 0xc0)) return false;
+        if (bank >= 0xf2 || ((rom.size() > 0x200000 || ExpandedRom()) && bank >= 0xc0)) return false;
         const unsigned mirrored = bank & 0x7f;
-        if (mirrored >= 0x70 && mirrored <= 0x73 && (mirrored <= 0x71 || ram.size() > 0x20000)) {
+        if (mirrored >= 0x70 && mirrored <= 0x7d &&
+            (mirrored <= 0x71 || (size_t(mirrored - 0x70) << 16) < ram.size())) {
             offset = ((mirrored - 0x70) << 16) | low;
             return true;
         }
         return false;
+    }
+
+    bool CpuRomAddress(uint32_t address, size_t& offset) const {
+        const unsigned bank = address >> 16, low = address & 0xffff;
+        const bool expanded = ExpandedRom();
+        size_t base = 0, window = 0x200000, linear = 0;
+        if (IoBank(address) && low >= 0x8000) {
+            if (expanded && (bank & 0x80)) base = 0x200000;
+            linear = (size_t(bank & 0x3f) << 15) | (low & 0x7fff);
+        } else if (expanded && bank >= 0x40 && bank <= 0x6f) {
+            base = 0x800000;
+            window = 0x300000;
+            linear = address - 0x400000;
+        } else if (bank >= 0xc0 && (expanded || rom.size() > 0x200000)) {
+            base = expanded ? 0x400000 : 0;
+            window = 0x400000;
+            linear = address & 0x3fffff;
+        } else if ((bank >= 0x40 && bank <= 0x5f) || (bank >= 0xc0 && bank <= 0xdf)) {
+            linear = address & 0x1fffff;
+        } else return false;
+        if (base >= rom.size()) return false;
+        offset = base + Mirror(linear, std::min(window, rom.size() - base));
+        return true;
     }
 };
 
@@ -618,7 +644,7 @@ bool SuperFx::Selects(uint32_t address) noexcept {
     address &= 0xffffff;
     const unsigned low = address & 0xffff, bank = (address >> 16) & 0x7f;
     return (IoBank(address) && ((low >= 0x3000 && low <= 0x32ff) || low >= 0x6000)) ||
-           (bank >= 0x40 && bank <= 0x5f) || (bank >= 0x70 && bank <= 0x73) || address >= 0xc00000;
+           (bank >= 0x40 && bank <= 0x7d) || address >= 0xc00000;
 }
 
 uint8_t SuperFx::ReadCpu(uint32_t address, uint8_t openBus) {
@@ -628,18 +654,16 @@ uint8_t SuperFx::ReadCpu(uint32_t address, uint8_t openBus) {
     uint32_t offset = 0;
     if (impl_->CpuRamAddress(address, offset)) {
         if (impl_->ram.empty() || (impl_->Running() && (impl_->screenMode & 8))) return openBus;
-        return impl_->RamByte(offset);
+        // CPU expansion addresses are independent of the GSU's RAM bank register.
+        return impl_->ram[Mirror(offset, impl_->ram.size())];
     }
-    const unsigned bank = (address >> 16) & 0x7f;
-    const bool extended = impl_->rom.size() > 0x200000 && address >= 0xc00000;
-    const bool mapped = extended || (bank < 0x40 && low >= 0x8000) || (bank >= 0x40 && bank <= 0x5f);
-    if (!mapped || impl_->rom.empty()) return openBus;
+    size_t romOffset = 0;
+    if (!impl_->CpuRomAddress(address, romOffset)) return openBus;
     if (impl_->Running() && (impl_->screenMode & 0x10)) {
         constexpr std::array<uint8_t, 16> driven{0, 1, 0, 1, 4, 1, 0, 1, 0, 1, 8, 1, 0, 1, 12, 1};
         return driven[low & 15];
     }
-    if (extended) return impl_->rom[Mirror(address & 0x3fffff, std::min(impl_->rom.size(), size_t(0x400000)))];
-    return impl_->MemoryByte((bank << 16) | low);
+    return impl_->rom[romOffset];
 }
 
 void SuperFx::WriteCpu(uint32_t address, uint8_t value) {
@@ -647,8 +671,9 @@ void SuperFx::WriteCpu(uint32_t address, uint8_t value) {
     const auto low = uint16_t(address);
     if (IoBank(address) && low >= 0x3000 && low <= 0x32ff) { impl_->WriteIo(low, value); return; }
     uint32_t offset = 0;
-    if (impl_->CpuRamAddress(address, offset) && !(impl_->Running() && (impl_->screenMode & 8)))
-        impl_->StoreRam(offset, value);
+    if (impl_->CpuRamAddress(address, offset) && !impl_->ram.empty() &&
+        !(impl_->Running() && (impl_->screenMode & 8)))
+        impl_->ram[Mirror(offset, impl_->ram.size())] = value;
 }
 
 } // namespace snes::core

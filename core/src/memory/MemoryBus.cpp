@@ -376,10 +376,13 @@ void MemoryBus::MapCartridge(Cartridge& cart) {
         MapRange(0x80, 0xbf, 0x3000, 0x32ff, cartSlot);
         MapRange(0x00, 0x3f, 0x6000, 0xffff, cartSlot);
         MapRange(0x80, 0xbf, 0x6000, 0xffff, cartSlot);
-        MapRange(0x40, 0x5f, 0x0000, 0xffff, cartSlot);
-        MapRange(0xc0, cart.RomData().size() > 0x200000 ? 0xff : 0xdf, 0x0000, 0xffff, cartSlot);
-        MapRange(0x70, 0x71, 0x0000, 0xffff, cartSlot);
-        if (cart.RomData().size() <= 0x200000) MapRange(0xf0, 0xf1, 0x0000, 0xffff, cartSlot);
+        MapRange(0x40, cart.Header().romSizeShift >= 14 ? 0x6f : 0x5f, 0x0000, 0xffff, cartSlot);
+        MapRange(0xc0, cart.RomData().size() > 0x200000 || cart.Header().romSizeShift >= 14 ? 0xff : 0xdf,
+                 0x0000, 0xffff, cartSlot);
+        MapRange(0x70, uint8_t(0x70 + std::clamp<size_t>((cart.SramData().size() + 0xffff) >> 16, 2, 14) - 1),
+                 0x0000, 0xffff, cartSlot);
+        if (cart.RomData().size() <= 0x200000 && cart.Header().romSizeShift < 14)
+            MapRange(0xf0, 0xf1, 0x0000, 0xffff, cartSlot);
         break;
     case MappingType::Spc7110:
         MapRange(0x00, 0x0f, 0x8000, 0xffff, cartSlot);

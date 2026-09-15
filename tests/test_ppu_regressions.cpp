@@ -37,6 +37,33 @@ void Render(Ppu& ppu) {
     ppu.VBlankBegin();
 }
 
+void RenderLines(Ppu& ppu, uint16_t count) {
+    ppu.FrameBegin();
+    for (uint16_t v = 1; v <= count; ++v) ppu.ScanlineBegin(v);
+    ppu.VBlankBegin();
+}
+
+uint16_t RasterClock(int x) {
+    return static_cast<uint16_t>(88 + x * 4);
+}
+
+void Fill2bppTile(Ppu& ppu, uint16_t base, uint16_t tile, uint8_t color) {
+    const uint16_t row = static_cast<uint16_t>(((color & 1) ? 0x00ff : 0) |
+                                               ((color & 2) ? 0xff00 : 0));
+    for (int y = 0; y < 8; ++y) ppu.VramData()[base + tile * 8 + y] = row;
+}
+
+void SetupBg1(Ppu& ppu) {
+    ppu.WriteIO(0x2100, 0x0f);
+    ppu.WriteIO(0x2105, 0);
+    ppu.WriteIO(0x210b, 1);
+    ppu.WriteIO(0x212c, 1);
+    ppu.CgramData()[1] = 0x001f;
+    ppu.CgramData()[2] = 0x03e0;
+    Fill2bppTile(ppu, 0x1000, 0, 1);
+    Fill2bppTile(ppu, 0x1000, 1, 2);
+}
+
 void BackgroundRows() {
     // Source Y = output row + BG VOFS + 1.
     for (uint8_t mode = 0; mode <= 4; ++mode) {
@@ -273,6 +300,287 @@ void RasterMemoryChanges() {
         if (!tileData) Expect(Pixel(*ppu, 0, 1) == 0, "Moved sprite leaves its old position");
     }
 }
+
+void RasterRegisterChanges() {
+    {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->CgramData()[0] = 0x001f;
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->SetCurrentHClock(RasterClock(64));
+        ppu->WriteIO(0x2100, 0x07); // Before the H=512 line snapshot.
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(192));
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 32, 0) == 0x001f, "Raster brightness preserves the pre-write left span");
+        Expect(Pixel(*ppu, 100, 0) == 14, "Raster brightness changes only the timestamped middle span");
+        Expect(Pixel(*ppu, 220, 0) == 0x001f, "Raster brightness restores on a later write");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->CgramData()[0] = 0x03e0;
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->SetCurrentHClock(RasterClock(80));
+        ppu->WriteIO(0x2100, 0x8f);
+        ppu->ScanlineBegin(1); // Memory must still be cached while the sample is blanked.
+        ppu->SetCurrentHClock(RasterClock(160));
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 40, 0) == 0x03e0, "Forced blank keeps pixels before the write");
+        Expect(Pixel(*ppu, 120, 0) == 0, "Forced blank blacks only its active span");
+        Expect(Pixel(*ppu, 200, 0) == 0x03e0, "Display resumes after a mid-line forced-blank clear");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        for (int x = 0; x < 32; ++x) ppu->VramData()[x] = static_cast<uint16_t>(x & 1);
+        Write16(*ppu, 0x210d, 0);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        Write16(*ppu, 0x210d, 8);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 100, 0) == 0x001f, "Raster scroll leaves the earlier tile columns unchanged");
+        Expect(Pixel(*ppu, 132, 0) == 0x03e0, "Raster scroll uses the new offset after the write");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupBg1(*ppu);
+        ppu->WriteIO(0x2126, 0);
+        ppu->WriteIO(0x2127, 255);
+        ppu->WriteIO(0x212e, 1);
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2123, 0x02);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 64, 0) == 0x001f, "Window selection keeps the earlier span unmasked");
+        Expect(Pixel(*ppu, 192, 0) == 0, "Window selection masks only pixels after its timestamp");
+    }
+    {
+        auto ppu = std::make_unique<Ppu>();
+        ppu->WriteIO(0x2100, 0x0f);
+        ppu->WriteIO(0x2105, 0);
+        ppu->WriteIO(0x210b, 1);
+        ppu->WriteIO(0x212c, 1);
+        ppu->CgramData()[1] = 0x001f;
+        ppu->CgramData()[2] = 0x03e0;
+        for (int row = 0; row < 8; ++row) ppu->VramData()[0x1000 + row] = 0x55aa;
+        ppu->FrameBegin();
+        ppu->SetCurrentLine(1);
+        ppu->ScanlineBegin(1);
+        ppu->SetCurrentHClock(RasterClock(128));
+        ppu->WriteIO(0x2106, 0x31);
+        ppu->VBlankBegin();
+        Expect(Pixel(*ppu, 126, 0) != Pixel(*ppu, 127, 0), "Pixels before the mosaic write stay unmosaiced");
+        Expect(Pixel(*ppu, 128, 0) == Pixel(*ppu, 129, 0) &&
+               Pixel(*ppu, 128, 0) == Pixel(*ppu, 131, 0),
+               "Mosaic starts in the span following its timestamp");
+    }
+}
+
+uint16_t Mode7DirectColor(uint8_t color) {
+    return static_cast<uint16_t>(((color << 2) & 0x001c) |
+                                 ((color << 4) & 0x0380) |
+                                 ((color << 7) & 0x6000));
+}
+
+void SetupMode7(Ppu& ppu) {
+    ppu.WriteIO(0x2100, 0x0f);
+    ppu.WriteIO(0x2105, 7);
+    Write16(ppu, 0x211b, 0x0100);
+    Write16(ppu, 0x211e, 0x0100);
+}
+
+void Mode7DirectColorAndExtbgMosaic() {
+    for (bool mosaic : {false, true}) {
+        auto ppu = std::make_unique<Ppu>();
+        SetupMode7(*ppu);
+        ppu->WriteIO(0x212c, 1);
+        ppu->WriteIO(0x2130, 1);
+        if (mosaic) ppu->WriteIO(0x2106, 0x31);
+        constexpr uint8_t raw = 0xe7;
+        ppu->CgramData()[raw] = 0x001f;
+        for (int i = 0; i < 64; ++i) ppu->VramData()[i] = static_cast<uint16_t>(raw << 8);
+        RenderLines(*ppu, 1);
+        Expect(Pixel(*ppu, 0, 0) == Mode7DirectColor(raw),
+               mosaic ? "Mode 7 mosaic BG1 uses direct color" : "Mode 7 BG1 uses direct color");
+    }
+
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupMode7(*ppu);
+        ppu->WriteIO(0x2133, 0x40);
+        ppu->WriteIO(0x2130, 1);
+        ppu->WriteIO(0x212c, 2);
+        ppu->CgramData()[1] = 0x03e0;
+        for (int i = 0; i < 64; ++i) ppu->VramData()[i] = 0x8100;
+        RenderLines(*ppu, 1);
+        Expect(Pixel(*ppu, 0, 0) == 0x03e0,
+               "EXTBG BG2 remains palette indexed when BG1 direct color is enabled");
+    }
+
+    {
+        auto ppu = std::make_unique<Ppu>();
+        SetupMode7(*ppu);
+        ppu->WriteIO(0x2133, 0x40);
+        ppu->WriteIO(0x212c, 2);
+        ppu->WriteIO(0x2106, 0x31); // BG1 alone controls Mode 7 vertical mosaic.
+        for (int color = 1; color <= 8; ++color) ppu->CgramData()[color] = static_cast<uint16_t>(color);
+        for (int row = 0; row < 8; ++row) {
+            for (int x = 0; x < 8; ++x) {
+                ppu->VramData()[row * 8 + x] = static_cast<uint16_t>((0x81 + row) << 8);
+            }
+        }
+        RenderLines(*ppu, 8);
+        for (int y = 0; y < 4; ++y)
+            Expect(Pixel(*ppu, 0, y) == 2, "BG1 mosaic holds EXTBG BG2 on the same source row vertically");
+        Expect(Pixel(*ppu, 0, 4) == 6, "EXTBG BG2 advances when the BG1 vertical mosaic block ends");
+    }
+}
+
+void SetupHiresPair(Ppu& ppu, bool mode5) {
+    ppu.WriteIO(0x2100, 0x0f);
+    ppu.WriteIO(0x2105, mode5 ? 5 : 0);
+    if (!mode5) ppu.WriteIO(0x2133, 0x08);
+    ppu.WriteIO(0x2107, 0x00);
+    ppu.WriteIO(0x2108, 0x04);
+    ppu.WriteIO(0x210b, 0x21);
+    ppu.WriteIO(0x212c, 0x01);
+    ppu.WriteIO(0x212d, 0x02);
+    for (int x = 0; x < 32; ++x) {
+        ppu.VramData()[x] = 0;
+        ppu.VramData()[0x0400 + x] = mode5 ? 0x0400 : 0;
+    }
+    for (int row = 0; row < 8; ++row) {
+        ppu.VramData()[0x1000 + row] = 0x00ff;
+        ppu.VramData()[0x1008 + row] = 0;
+        if (mode5) {
+            ppu.VramData()[0x1010 + row] = 0x00ff;
+            ppu.VramData()[0x1018 + row] = 0;
+        }
+        ppu.VramData()[0x2000 + row] = 0x00ff;
+        if (mode5) ppu.VramData()[0x2008 + row] = 0x00ff;
+    }
+    ppu.CgramData()[1] = 5;
+    ppu.CgramData()[mode5 ? 5 : 33] = static_cast<uint16_t>(5 << 5);
+}
+
+void HiresAdjacentMathAndWindows() {
+    for (uint8_t mode : {uint8_t(0), uint8_t(5), uint8_t(6)}) {
+        for (bool subtract : {false, true}) {
+            for (bool halve : {false, true}) {
+                auto ppu = std::make_unique<Ppu>();
+                SetupHiresPair(*ppu, mode != 0);
+                if (mode == 6) ppu->WriteIO(0x2105, 6);
+                ppu->CgramData()[0] = 4 << 5;
+                ppu->CgramData()[1] = 10;
+                ppu->WriteIO(0x212d, 0); // No sub-screen layer at this pixel.
+                ppu->WriteIO(0x2130, 2);
+                ppu->WriteIO(0x2131, uint8_t(1 | (subtract ? 0x80 : 0) | (halve ? 0x40 : 0)));
+                ppu->WriteIO(0x2132, 0x22); // Fixed red = 2, distinct from the green backdrop.
+                RenderLines(*ppu, 1);
+                Expect(Pixel(*ppu, 3, 0) == (subtract ? 8 : 12),
+                       "Hires main math uses fixed color without halving when no sub-screen layer exists");
+                Expect(Pixel(*ppu, 2, 0) == uint16_t((4 << 5) | (subtract ? 0 : 2)),
+                       "Hires sub display retains its palette backdrop while using fixed-color math");
+            }
+        }
+    }
+    for (bool mode5 : {false, true}) {
+        {
+            auto ppu = std::make_unique<Ppu>();
+            SetupHiresPair(*ppu, mode5);
+            ppu->WriteIO(0x2130, 0x02);
+            ppu->WriteIO(0x2131, 0x01);
+            RenderLines(*ppu, 1);
+            const uint16_t combined = static_cast<uint16_t>((5 << 5) | 5);
+            Expect(Pixel(*ppu, 2, 0) == combined,
+                   mode5 ? "Hires Sub(x+1) uses Main(x) color math" :
+                           "Pseudo-hires Sub(x+1) uses Main(x) color math");
+        }
+        {
+            auto ppu = std::make_unique<Ppu>();
+            SetupHiresPair(*ppu, mode5);
+            ppu->WriteIO(0x2126, 0);
+            ppu->WriteIO(0x2127, 0);
+            ppu->WriteIO(0x2125, 0x20);
+            ppu->WriteIO(0x2130, 0x80);
+            ppu->WriteIO(0x2131, 0x00);
+            RenderLines(*ppu, 1);
+            Expect(Pixel(*ppu, 2, 0) == 0,
+                   mode5 ? "Hires Sub(x+1) inherits Main(x) color-window clipping" :
+                           "Pseudo-hires Sub(x+1) inherits Main(x) color-window clipping");
+        }
+        {
+            auto ppu = std::make_unique<Ppu>();
+            SetupHiresPair(*ppu, mode5);
+            ppu->WriteIO(0x2130, 0x02);
+            ppu->WriteIO(0x2131, 0x01);
+            ppu->WriteIO(0x2126, 0);
+            ppu->WriteIO(0x2127, 255);
+            ppu->WriteIO(0x212e, 1);
+            ppu->FrameBegin();
+            ppu->SetCurrentLine(1);
+            ppu->ScanlineBegin(1);
+            ppu->SetCurrentHClock(RasterClock(128));
+            Write16(*ppu, 0x210d, 8);
+            ppu->WriteIO(0x2123, 0x02);
+            ppu->VBlankBegin();
+
+            const uint16_t paired = static_cast<uint16_t>((5 << 5) | 5);
+            Expect(Pixel(*ppu, 256, 0) == paired,
+                   mode5 ? "Hires span boundary pairs Sub(x) with the preceding rendered Main(x-1)" :
+                           "Pseudo-hires span boundary pairs Sub(x) with the preceding rendered Main(x-1)");
+            Expect(Pixel(*ppu, 258, 0) == static_cast<uint16_t>(5 << 5),
+                   mode5 ? "Hires pixels after the boundary use the new scroll/window state" :
+                           "Pseudo-hires pixels after the boundary use the new scroll/window state");
+        }
+    }
+}
+
+void ObjectOverflowAndStat77() {
+    {
+        Ppu ppu;
+        ppu.WriteIO(0x2100, 0x8f); // Forced blank; OBJ is absent from TM/TS.
+        for (int i = 0; i < 128; ++i) ppu.OamData()[4 * i + 1] = 240;
+        for (int i = 0; i < 33; ++i) {
+            ppu.OamData()[4 * i + 0] = static_cast<uint8_t>((i * 7) & 0xff);
+            ppu.OamData()[4 * i + 1] = 0;
+        }
+        ppu.FrameBegin();
+        ppu.SetCurrentLine(1);
+        Expect((ppu.ReadIO(0x213e, 0) & 0x40) != 0,
+               "Range-over updates live even with forced blank and OBJ display disabled");
+    }
+    {
+        Ppu ppu;
+        ppu.WriteIO(0x2100, 0x8f);
+        ppu.WriteIO(0x2101, static_cast<uint8_t>(3 << 5)); // 16x16 small objects, two tiles each.
+        for (int i = 0; i < 128; ++i) ppu.OamData()[4 * i + 1] = 240;
+        for (int i = 0; i < 18; ++i) {
+            ppu.OamData()[4 * i + 0] = static_cast<uint8_t>((i * 13) & 0xff);
+            ppu.OamData()[4 * i + 1] = 0;
+        }
+        ppu.FrameBegin();
+        ppu.SetCurrentLine(1);
+        Expect((ppu.ReadIO(0x213e, 0) & 0x80) != 0,
+               "Time-over updates live after the 34th fetched OBJ tile");
+    }
+    {
+        Ppu ppu;
+        ppu.GetLatch().ppu1.mdr = 0x10;
+        const uint8_t status = ppu.ReadIO(0x213e, 0);
+        Expect((status & 0x10) != 0 && (status & 0x0f) == 1,
+               "STAT77 preserves PPU1 open-bus bit 4 while reporting its version");
+    }
+}
 } // namespace
 
 int main() {
@@ -283,6 +591,10 @@ int main() {
     HighResolutionOutput();
     MixedWidthsAndFields();
     RasterMemoryChanges();
+    RasterRegisterChanges();
+    Mode7DirectColorAndExtbgMosaic();
+    HiresAdjacentMathAndWindows();
+    ObjectOverflowAndStat77();
     std::printf("PPU regression failures: %d\n", failures);
     return failures ? 1 : 0;
 }

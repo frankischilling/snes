@@ -102,7 +102,8 @@ add_test(NAME snes_cpu_stop_tests COMMAND snes_cpu_regression_tests stop)
 set_tests_properties(snes_cpu_stop_tests PROPERTIES TIMEOUT 5)
 
 add_executable(snes_audio_regression_tests test_audio_regressions.cpp)
-target_link_libraries(snes_audio_regression_tests PRIVATE snes_core)
+find_package(Threads REQUIRED)
+target_link_libraries(snes_audio_regression_tests PRIVATE snes_core Threads::Threads)
 add_test(NAME snes_audio_regression_tests COMMAND snes_audio_regression_tests)
 add_executable(snes_dsp_phase_tests test_dsp_phases.cpp)
 target_link_libraries(snes_dsp_phase_tests PRIVATE snes_core)
@@ -119,3 +120,16 @@ target_link_libraries(snes_sdl_audio_tests PRIVATE snes_core SDL3::SDL3)
 foreach(rate 32000 44100 48000)
   add_test(NAME snes_sdl_audio_${rate} COMMAND snes_sdl_audio_tests ${rate})
 endforeach()
+
+# Opt in with an existing diagnostic checkout; ROMs are never fetched by a build.
+set(SNES_DIAGNOSTIC_ROM_DIR "" CACHE PATH "Root of an external SnesTests checkout")
+if(SNES_DIAGNOSTIC_ROM_DIR)
+  set(dma_irq_rom "${SNES_DIAGNOSTIC_ROM_DIR}/dma_irq_test/dma_irq_test.sfc")
+  if(NOT EXISTS "${dma_irq_rom}")
+    message(FATAL_ERROR "SNES_DIAGNOSTIC_ROM_DIR does not contain dma_irq_test/dma_irq_test.sfc")
+  endif()
+  add_test(NAME snes_external_dma_irq
+    COMMAND snes_rom_diagnostic "${dma_irq_rom}" 300
+      --expect "${CMAKE_CURRENT_SOURCE_DIR}/expected/dma_irq.txt")
+  set_tests_properties(snes_external_dma_irq PROPERTIES TIMEOUT 120 LABELS "external")
+endif()

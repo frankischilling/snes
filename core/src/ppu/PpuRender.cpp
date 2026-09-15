@@ -160,17 +160,68 @@ void Ppu::RenderFrame() {
 // RenderLine — the core per-scanline pipeline
 
 void Ppu::RenderLine(Line& line) {
-    uint16_t y = line.y;
+    std::vector<const RasterEvent*> events;
+    for (const auto& event : rasterEvents_) {
+        if (event.line == line.y) events.push_back(&event);
+    }
+
+    if (events.empty()) {
+        RenderLineSpan(line, line.io, 0, 256);
+        return;
+    }
+
+    const IO snapshot = line.io;
+    IO state = snapshot;
+    for (auto it = events.rbegin(); it != events.rend(); ++it) {
+        ApplyRasterEvent(state, **it, false);
+    }
+
+    int x = 0;
+    for (const auto* event : events) {
+        const int next = std::clamp<int>(event->x, x, 256);
+        if (next > x) RenderLineSpan(line, state, x, next);
+        ApplyRasterEvent(state, *event, true);
+        x = next;
+    }
+    if (x < 256) RenderLineSpan(line, state, x, 256);
+    line.io = snapshot;
+}
+
+void Ppu::RenderLineSpan(Line& line, const IO& state, int x0, int x1) {
+    Pixel precedingAbove{};
+    Pixel precedingBelow{};
+    bool precedingWindowAbove = false;
+    bool precedingWindowBelow = false;
+    const bool preservePreceding = x0 > 0 &&
+        (state.pseudoHires || state.bgMode == 5 || state.bgMode == 6);
+    if (preservePreceding) {
+        precedingAbove = line.above[x0 - 1];
+        precedingBelow = line.below[x0 - 1];
+        precedingWindowAbove = line.windowAbove[x0 - 1];
+        precedingWindowBelow = line.windowBelow[x0 - 1];
+    }
+
+    line.io = state;
+    const uint16_t y = line.y;
 
     // Export visible rows directly: visible vcounter 1 maps to output row 0.
     uint16_t outputY = static_cast<uint16_t>(y - 1);
     if (frameInterlace_) outputY = uint16_t(outputY * 2 + unsigned(line.fieldID));
 
     auto* outRow = output_.get() + static_cast<size_t>(outputY) * OutputWidth;
+    const int scale = frameWidth_ == 512 ? 2 : 1;
+    const int outputStart = x0 * scale;
+    const int outputEnd = x1 * scale;
 
     // Display disabled → black
     if (line.io.displayDisable) {
-        std::fill_n(outRow, frameWidth_, 0u);
+        std::fill(outRow + outputStart, outRow + outputEnd, 0u);
+        for (int x = x0; x < x1; ++x) {
+            line.above[x] = {Source::COL, 0, 0};
+            line.below[x] = {Source::COL, 0, 0};
+            line.windowAbove[x] = true;
+            line.windowBelow[x] = true;
+        }
         return;
     }
 
@@ -193,15 +244,27 @@ void Ppu::RenderLine(Line& line) {
     RenderWindowColor(line, line.io.col.window,
                       line.io.col.window.belowMask, line.windowBelow);
 
+    // The even output dot at a hires span boundary is Sub(x), but its math,
+    // clip decision, and paired color come from the Main(x-1) dot that was
+    // actually produced by the preceding span.  Re-rendering the whole line
+    // for this span must not replace that one piece of pipeline state.
+    if (preservePreceding) {
+        line.above[x0 - 1] = precedingAbove;
+        line.below[x0 - 1] = precedingBelow;
+        line.windowAbove[x0 - 1] = precedingWindowAbove;
+        line.windowBelow[x0 - 1] = precedingWindowBelow;
+    }
+
     // Step 4: Final compositing with brightness
     auto* luma = lightTable_[line.io.displayBrightness];
 
     const bool hires = line.io.pseudoHires || line.io.bgMode == 5 || line.io.bgMode == 6;
-    for (int outputX = 0; outputX < frameWidth_; ++outputX) {
+    for (int outputX = outputStart; outputX < outputEnd; ++outputX) {
         const int x = frameWidth_ == 512 ? outputX / 2 : outputX;
         const bool sub = hires && !(outputX & 1);
-        const uint16_t color555 = sub ? CompositePixel(line, x, line.below[x], line.above[x]) :
-            CompositePixel(line, x, line.above[x], line.below[x]);
+        const int controlX = x == 0 ? 0 : x - 1;
+        const uint16_t color555 = sub ? CompositeHiresSubPixel(line, x, controlX) :
+                                        CompositePixel(line, x, line.above[x], line.below[x]);
         uint16_t dimmed = luma[color555];
 
         // Convert BGR555 → RGBA8888
@@ -545,10 +608,13 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
         return (n & 0x2000) ? (n | ~1023) : (n & 1023);
     };
 
-    // Apply mosaic to the visible row before the Mode 7 vertical flip.
+    // Mode 7 vertical mosaic is keyed by BG1 even when rendering EXTBG BG2.
     int y = line.y;
-    if (bg.mosaicEnable) y -= line.io.mosaic.size - line.io.mosaic.counter;
+    if (line.io.bg1.mosaicEnable)
+        y -= line.io.mosaic.size - line.io.mosaic.counter;
     if (line.io.mode7.vflip) y = 255 - y;
+
+    const bool directColorMode = source == Source::BG1 && line.io.col.directColor;
 
     int originX = (a * clip(hoffset - hcenter) & ~63)
                 + (b * clip(voffset - vcenter) & ~63)
@@ -604,7 +670,8 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
                 mosaicCounter = line.io.mosaic.size;
                 mosaicTransparent = (palette == 0);
                 if (!mosaicTransparent) {
-                    mosaicColor = line.cgram[palette];
+                    mosaicColor = directColorMode ? DirectColor(0, palette)
+                                                  : line.cgram[palette];
                 }
                 mosaicPriority = tilePriority;
             }
@@ -620,7 +687,8 @@ void Ppu::RenderMode7(Line& line, const Background& bg, uint8_t source) {
 
         if (palette == 0) continue;
 
-        uint16_t finalColor = line.cgram[palette];
+        uint16_t finalColor = directColorMode ? DirectColor(0, palette)
+                                              : line.cgram[palette];
 
         if (bg.aboveEnable && !winAbove[X])
             PlotAbove(line, X, source, tilePriority, finalColor);
@@ -645,9 +713,6 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
     int tileCount = 0;
     constexpr int ItemLimit = 32;
     constexpr int TileLimit = 34;
-    bool rangeOver = false;
-    bool timeOver  = false;
-
     // Clear items/tiles
     for (int i = 0; i < 128; i++) {
         line.items[i] = {false, 0, 0, 0};
@@ -689,7 +754,7 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
 
         if (!inRange) continue;
 
-        if (itemCount >= ItemLimit) { rangeOver = true; break; }
+        if (itemCount >= ItemLimit) break;
         line.items[itemCount] = {true, idx, w, h};
         itemCount++;
     }
@@ -747,7 +812,7 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
             // Skip tiles entirely off-screen (x=256 sprites are not skipped)
             if (sx != 256 && objectX >= 256 && objectX + 7 < 512) continue;
 
-            if (tileCount >= TileLimit) { timeOver = true; break; }
+            if (tileCount >= TileLimit) break;
 
             uint32_t mirrorX = object.hflip ? (tileWidth - 1 - tileX) : tileX;
             uint16_t address = tiledataAddr +
@@ -772,10 +837,6 @@ void Ppu::RenderObjects(Line& line, const ObjectIO& obj) {
             tileCount++;
         }
     }
-
-    // Set overflow flags (|= because flags are sticky until read)
-    io_.obj.rangeOver |= rangeOver;
-    io_.obj.timeOver  |= timeOver;
 
     // Phase 3: Pixel decode into temporary buffers
     uint8_t paletteArr[256] = {};
@@ -938,10 +999,32 @@ uint16_t Ppu::CompositePixel(const Line& line, int x,
                      line.io.col.halve && line.windowAbove[x]);
     }
 
-    // Sub screen mode
-    return Blend(line, above.color, below.color,
-                 line.io.col.halve && line.windowAbove[x] &&
-                 below.source != Source::COL);
+    // An empty sub screen displays CGRAM[0] in hires, but color math still
+    // selects the fixed-color register and suppresses halving for that pixel.
+    const bool hasSubLayer = below.source != Source::COL;
+    return Blend(line, above.color, hasSubLayer ? below.color : line.io.col.fixedColor,
+                 line.io.col.halve && line.windowAbove[x] && hasSubLayer);
+}
+
+uint16_t Ppu::CompositeHiresSubPixel(const Line& line, int subX,
+                                     int controlX) const {
+    Pixel sub = line.below[subX];
+    const Pixel main = line.above[controlX];
+
+    // A displayed Sub(x+1) inherits Main(x)'s clip and math selection.
+    if (!line.windowAbove[controlX]) sub.color = 0x0000;
+    if (!line.windowBelow[controlX]) return sub.color;
+    if (!line.io.col.enable[main.source]) return sub.color;
+
+    if (!line.io.col.blendMode) {
+        return Blend(line, sub.color, line.io.col.fixedColor,
+                     line.io.col.halve && line.windowAbove[controlX]);
+    }
+
+    const bool hasSubLayer = line.below[controlX].source != Source::COL;
+    const uint16_t paired = hasSubLayer ? main.color : line.io.col.fixedColor;
+    return Blend(line, sub.color, paired,
+                 line.io.col.halve && line.windowAbove[controlX] && hasSubLayer);
 }
 
 // Blend — saturating add/subtract on packed BGR555

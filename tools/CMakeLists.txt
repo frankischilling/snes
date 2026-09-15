@@ -9,3 +9,6 @@ target_link_libraries(snes_trace_dump
 
 add_executable(snes_rom_smoke src/rom_smoke.cpp)
 target_link_libraries(snes_rom_smoke PRIVATE snes_core)
+
+add_executable(snes_rom_diagnostic src/rom_diagnostic.cpp)
+target_link_libraries(snes_rom_diagnostic PRIVATE snes_core)

@@ -160,12 +160,13 @@ void Smp::tickDsp() {
     if (dsp_) dsp_->Tick();
 }
 
-// Batch execution — run until CycleCount() >= targetCycles
+// Batch execution — stop exactly at the requested bus-cycle deadline.
 
 void Smp::RunUntil(uint64_t targetCycles) {
-    // Step idles a halted CPU, keeping the timers and DSP on the same clock.
+    // StepCycle idles a halted CPU and can also pause a live instruction before
+    // its next bus access, keeping timers and DSP on the same clock deadline.
     while (cycles_ < targetCycles) {
-        Step();
+        StepCycle();
     }
 }
 
