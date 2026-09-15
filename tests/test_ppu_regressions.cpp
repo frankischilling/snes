@@ -53,6 +53,19 @@ void Fill2bppTile(Ppu& ppu, uint16_t base, uint16_t tile, uint8_t color) {
     for (int y = 0; y < 8; ++y) ppu.VramData()[base + tile * 8 + y] = row;
 }
 
+void SetTilePixel(Ppu& ppu, uint16_t base, int tile, int depth,
+                  int x, int y, uint8_t color) {
+    for (int plane = 0; plane < depth; ++plane) {
+        auto& word = ppu.VramData()[base + tile * depth * 4 + (plane / 2) * 8 + y];
+        const uint16_t mask = static_cast<uint16_t>(1u << (7 - x + (plane & 1) * 8));
+        word = static_cast<uint16_t>((word & ~mask) | ((color & (1u << plane)) ? mask : 0));
+    }
+}
+
+int Tilemap64Address(int x, int y) {
+    return (y & 31) * 32 + (x & 31) + ((x & 32) ? 1024 : 0) + ((y & 32) ? 2048 : 0);
+}
+
 void SetupBg1(Ppu& ppu) {
     ppu.WriteIO(0x2100, 0x0f);
     ppu.WriteIO(0x2105, 0);
@@ -202,6 +215,225 @@ void HighResolutionOutput() {
         ppu->WriteIO(0x2100, 0x80);
         Render(*ppu);
         Expect(Pixel(*ppu, 511, 0) == 0, "Forced blank clears right edge of hires frame");
+    }
+}
+
+void HiresMosaicSampling() {
+    constexpr uint8_t pattern[4] = {1, 2, 0, 3};
+    for (uint8_t mode : {5, 6}) {
+        for (int layer : {0, 1}) {
+            if (mode == 6 && layer == 1) continue;
+            for (int size : {0, 1, 2, 3, 16}) {
+                for (bool flip : {false, true}) {
+                    for (uint16_t scroll : {0, 3}) {
+                        auto ppu = std::make_unique<Ppu>();
+                        const uint8_t enable = static_cast<uint8_t>(1u << layer);
+                        ppu->WriteIO(0x2100, 0x0f);
+                        ppu->WriteIO(0x2105, mode);
+                        ppu->WriteIO(0x210b, layer == 0 ? 0x01 : 0x10);
+                        ppu->WriteIO(0x212c, enable);
+                        ppu->WriteIO(0x212d, enable);
+                        Write16(*ppu, static_cast<uint16_t>(0x210d + layer * 2), scroll);
+                        ppu->WriteIO(0x2106, size ? static_cast<uint8_t>(((size - 1) << 4) | enable) : 0);
+                        // Mask only the main screen; mosaic sampling continues behind the window.
+                        ppu->WriteIO(0x2123, layer == 0 ? 0x02 : 0x20);
+                        ppu->WriteIO(0x2126, 5);
+                        ppu->WriteIO(0x2127, 9);
+                        ppu->WriteIO(0x212e, enable);
+                        ppu->CgramData()[1] = 0x001f;
+                        ppu->CgramData()[2] = 0x03e0;
+                        ppu->CgramData()[3] = 0x7c00;
+                        for (int tile = 0; tile < 32; ++tile)
+                            ppu->VramData()[tile] = flip ? 0x4000 : 0;
+                        for (int y = 0; y < 8; ++y) {
+                            for (int x = 0; x < 16; ++x)
+                                SetTilePixel(*ppu, 0x1000, x / 8, layer == 0 ? 4 : 2,
+                                             x & 7, y, pattern[x & 3]);
+                        }
+                        RenderLines(*ppu, 1);
+                        bool matches = true;
+                        for (int x = 0; x < 512; ++x) {
+                            const int dot = x / 2;
+                            // A block is measured in 256-dot coordinates. Even size one
+                            // sends its even source sample to both main and sub screens.
+                            int source = size ? (dot / size) * size * 2 : x;
+                            source = (source + scroll * 2) & 15;
+                            if (flip) source ^= 15;
+                            uint16_t expected = ppu->CgramData()[pattern[source & 3]];
+                            if ((x & 1) && dot >= 5 && dot <= 9) expected = 0;
+                            matches &= Pixel(*ppu, x, 0) == expected;
+                        }
+                        Expect(matches, "Hires mosaic samples even dots at logical block widths before per-screen windows");
+                    }
+                }
+            }
+        }
+    }
+}
+
+void Mode6TileOffsets() {
+    for (bool tall : {false, true}) {
+        for (uint16_t scroll : {0, 3, 7}) {
+            for (uint16_t lookupScroll : {0, 248}) {
+                for (uint8_t offsets : {0, 1, 2, 3}) {
+                    auto ppu = std::make_unique<Ppu>();
+                    ppu->WriteIO(0x2100, 0x0f);
+                    ppu->WriteIO(0x2105, static_cast<uint8_t>(6 | (tall ? 0x10 : 0)));
+                    ppu->WriteIO(0x2107, 0x03); // BG1: 64x64 map at word $0000.
+                    ppu->WriteIO(0x2109, 0x23); // BG3: 64x64 offset map at word $2000.
+                    ppu->WriteIO(0x210b, 0x04);
+                    ppu->WriteIO(0x212c, 1);
+                    ppu->WriteIO(0x212d, 1);
+                    Write16(*ppu, 0x210d, scroll);
+                    Write16(*ppu, 0x210e, 5);
+                    Write16(*ppu, 0x2111, lookupScroll);
+                    for (int y = 0; y < 64; ++y) {
+                        for (int x = 0; x < 64; ++x)
+                            ppu->VramData()[Tilemap64Address(x, y)] = static_cast<uint16_t>(2 * ((x + y * 3) & 7));
+                    }
+                    for (int x = 0; x < 64; ++x) {
+                        // Disabled entries carry BG2's enable bit to check BG1 isolation.
+                        ppu->VramData()[0x2000 + Tilemap64Address(x, 0)] =
+                            static_cast<uint16_t>(((offsets & 1) ? 0x2000 : 0x4000) | ((16 + x * 24) & 1023));
+                        ppu->VramData()[0x2000 + Tilemap64Address(x, 1)] =
+                            static_cast<uint16_t>(((offsets & 2) ? 0x2000 : 0x4000) | ((11 + x * 5) & 1023));
+                    }
+                    for (int color = 1; color < 16; ++color)
+                        ppu->CgramData()[color] = static_cast<uint16_t>(color * 0x421);
+                    for (int tile = 0; tile < 32; ++tile) {
+                        for (int y = 0; y < 8; ++y) {
+                            for (int x = 0; x < 8; ++x)
+                                SetTilePixel(*ppu, 0x4000, tile, 4, x, y,
+                                             static_cast<uint8_t>((tile + y * 2) % 15 + 1));
+                        }
+                    }
+                    RenderLines(*ppu, 3);
+                    bool matches = true;
+                    for (int y = 0; y < 3; ++y) {
+                        for (int x = 0; x < 512; ++x) {
+                            int sourceX = x + scroll * 2;
+                            int sourceY = y + 1 + 5;
+                            const int offsetDot = x / 2 + (scroll & 7);
+                            // The first eight logical dots, shortened by fine scroll,
+                            // have no offset entry. Each later entry covers 16 source pixels.
+                            if (offsetDot >= 8) {
+                                const int column = (lookupScroll / 8 + (offsetDot - 8) / 8) & 63;
+                                if (offsets & 1)
+                                    sourceX = x + (scroll & 7) * 2 + ((16 + column * 24) & 1023) * 2;
+                                if (offsets & 2) sourceY = y + 1 + ((11 + column * 5) & 1023);
+                            }
+                            const int mapX = (sourceX / 16) & 63;
+                            const int mapY = (sourceY / (tall ? 16 : 8)) & 63;
+                            int tile = 2 * ((mapX + mapY * 3) & 7) + ((sourceX & 8) ? 1 : 0);
+                            if (tall && (sourceY & 8)) tile += 16;
+                            const uint16_t expected = static_cast<uint16_t>(((tile + (sourceY & 7) * 2) % 15 + 1) * 0x421);
+                            matches &= Pixel(*ppu, x, y) == expected;
+                        }
+                    }
+                    Expect(matches, "Mode 6 offsets preserve logical columns, fine scroll, BG3 scrolling and independent H/V enables");
+                }
+            }
+        }
+    }
+}
+
+void RasterSpanSampling() {
+    constexpr int boundaries[] = {1, 5, 13, 47, 95, 108, 127, 128, 171, 223, 250};
+    for (uint8_t mode = 0; mode < 8; ++mode) {
+        for (uint8_t mosaic : {0, 3, 5}) {
+            for (bool interlace : {false, true}) {
+                auto reference = std::make_unique<Ppu>();
+                auto raster = std::make_unique<Ppu>();
+                for (Ppu* ppu : {reference.get(), raster.get()}) {
+                    ppu->WriteIO(0x2100, 0x0f);
+                    ppu->WriteIO(0x2105, mode);
+                    ppu->WriteIO(0x2107, 1);
+                    ppu->WriteIO(0x2109, 0x20);
+                    ppu->WriteIO(0x210b, 1);
+                    ppu->WriteIO(0x2101, 0x63); // 16x16 objects at word $6000.
+                    ppu->WriteIO(0x2133, static_cast<uint8_t>((interlace ? 9 : 0) | (mode == 7 ? 0x40 : 0)));
+                    ppu->WriteIO(0x212c, 0x13);
+                    ppu->WriteIO(0x212d, 0x13);
+                    ppu->WriteIO(0x2130, 0x02);
+                    ppu->WriteIO(0x2131, 0x73);
+                    ppu->WriteIO(0x2132, 0xe7);
+                    ppu->WriteIO(0x2106, mosaic ? static_cast<uint8_t>(((mosaic - 1) << 4) | 3) : 0);
+                    Write16(*ppu, 0x210d, 3);
+                    Write16(*ppu, 0x210e, 5);
+                    ppu->WriteIO(0x2123, 0x02);
+                    ppu->WriteIO(0x2125, 0x2a);
+                    ppu->WriteIO(0x2126, 9);
+                    ppu->WriteIO(0x2127, 61);
+                    ppu->WriteIO(0x2128, 159);
+                    ppu->WriteIO(0x2129, 207);
+                    ppu->WriteIO(0x212e, 0x11);
+                    ppu->WriteIO(0x212f, 0x10);
+                    for (int color = 0; color < 256; ++color)
+                        ppu->CgramData()[color] = static_cast<uint16_t>((color * 137) & 0x7fff);
+                    if (mode == 7) {
+                        Write16(*ppu, 0x211b, 0x0140);
+                        Write16(*ppu, 0x211c, 0x0080);
+                        Write16(*ppu, 0x211d, 0xffc0);
+                        Write16(*ppu, 0x211e, 0x0100);
+                        for (int word = 0; word < 0x4000; ++word)
+                            ppu->VramData()[word] = static_cast<uint16_t>(((word / 7) & 7) | (((word * 13 + word / 8) & 255) << 8));
+                    } else {
+                        const int depth = 2 << static_cast<int>(ppu->GetIO().bg1.tileMode);
+                        for (int tile = 0; tile < 2048; ++tile)
+                            ppu->VramData()[tile] = static_cast<uint16_t>((tile & 6) | ((tile & 3) << 13));
+                        for (int tile = 0; tile < 8; ++tile) {
+                            for (int y = 0; y < 8; ++y) {
+                                for (int x = 0; x < 8; ++x)
+                                    SetTilePixel(*ppu, 0x1000, tile, depth, x, y,
+                                                 static_cast<uint8_t>((x + y + tile) & ((1 << depth) - 1)));
+                            }
+                        }
+                    }
+                    for (int i = 0; i < 128; ++i) ppu->OamData()[i * 4 + 1] = 240;
+                    for (int i = 0; i < 20; ++i) {
+                        ppu->OamData()[i * 4] = static_cast<uint8_t>(i * 11);
+                        ppu->OamData()[i * 4 + 1] = 0;
+                        ppu->OamData()[i * 4 + 2] = static_cast<uint8_t>((i & 7) * 2);
+                        ppu->OamData()[i * 4 + 3] = static_cast<uint8_t>(((i & 3) << 4) | ((i & 7) << 1));
+                    }
+                    for (int tile = 0; tile < 32; ++tile) {
+                        for (int y = 0; y < 8; ++y) {
+                            for (int x = 0; x < 8; ++x)
+                                SetTilePixel(*ppu, 0x6000, tile, 4, x, y, static_cast<uint8_t>((x + tile) & 15));
+                        }
+                    }
+                }
+                RenderLines(*reference, 3);
+                raster->FrameBegin();
+                for (uint16_t line = 1; line <= 3; ++line) {
+                    raster->SetCurrentLine(line);
+                    raster->SetCurrentHClock(0);
+                    raster->WriteIO(0x2100, 15);
+                    for (int i = 0; i < 11; ++i) {
+                        if (i == 5) raster->ScanlineBegin(line);
+                        raster->SetCurrentHClock(RasterClock(boundaries[i]));
+                        raster->WriteIO(0x2100, static_cast<uint8_t>((i * 7 + line) % 15 + 1));
+                    }
+                }
+                raster->VBlankBegin();
+                bool matches = true;
+                for (int line = 1; line <= 3; ++line) {
+                    const int row = (line - 1) * (interlace ? 2 : 1) + (interlace ? 1 : 0);
+                    for (int x = 0; x < reference->FrameWidth(); ++x) {
+                        const int dot = x / (reference->FrameWidth() == 512 ? 2 : 1);
+                        int brightness = 15;
+                        for (int i = 0; i < 11 && dot >= boundaries[i]; ++i)
+                            brightness = (i * 7 + line) % 15 + 1;
+                        const uint16_t original = Pixel(*reference, x, row);
+                        uint16_t expected = 0;
+                        for (int shift : {0, 5, 10})
+                            expected |= static_cast<uint16_t>(((((original >> shift) & 31) * brightness + 7) / 15) << shift);
+                        matches &= Pixel(*raster, x, row) == expected;
+                    }
+                }
+                Expect(matches, "Raster brightness spans preserve tile, mosaic, Mode 7 and OBJ samples with interlace and both screens");
+            }
+        }
     }
 }
 
@@ -829,6 +1061,9 @@ int main() {
     Mode7Coordinates();
     Mode7VerticalMosaic();
     HighResolutionOutput();
+    HiresMosaicSampling();
+    Mode6TileOffsets();
+    RasterSpanSampling();
     MixedWidthsAndFields();
     RasterMemoryChanges();
     VramSnapshotLifetime();

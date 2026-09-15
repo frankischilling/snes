@@ -35,6 +35,7 @@ public:
         int         baseW   = 256;         // Base width  (SNES visible)
         int         baseH   = 224;         // Base height (non-overscan)
         bool        vsync   = true;
+        bool        deferPresentation = false;
     };
 
     explicit SdlVideoOutput();
@@ -47,6 +48,7 @@ public:
 
     // IVideoOutput
     void Present(const snes::core::VideoFrame& frame) override;
+    void PresentPending();
 
     // State queries
 
@@ -75,6 +77,9 @@ private:
     uint32_t texH_ = 0;
     std::array<snes::core::LightGunState, 2> gunAim_{};
     unsigned gunCount_ = 0;
+    bool deferredPresentation_ = false;
+    bool pending_ = false;
+    uint64_t submittedFrames_ = 0;
 };
 
 } // namespace snes::frontend

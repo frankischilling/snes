@@ -520,16 +520,17 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
         }
 
         if (videoOutput_) {
-            VideoFrame frame;
+            auto& frame = videoOutputFrame_;
             frame.width = config_.visibleWidth;
             frame.height = config_.visibleHeight;
-            frame.pixels.resize(
+            frame.pixels.assign(
                 static_cast<size_t>(frame.width) * frame.height, 0xFF000000);
             videoOutput_->Present(frame);
         }
         if (audioOutput_) {
-            AudioBuffer audio;
+            auto& audio = audioOutputBuffer_;
             audio.sampleRate = 32000;
+            audio.interleavedStereo.clear();
             audioOutput_->Submit(audio);
         }
 
@@ -570,8 +571,9 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
 
     // Submit audio (convert int16_t → float)
     if (audioOutput_) {
-        AudioBuffer audio;
+        auto& audio = audioOutputBuffer_;
         audio.sampleRate = 32000;
+        audio.interleavedStereo.clear();
         const int samples = dsp_.SamplesWritten();
         audio.interleavedStereo.reserve(audioOverflow_.size() + static_cast<size_t>(samples) * 2);
         for (int16_t value : audioOverflow_)
@@ -586,7 +588,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
     // so the frontend can copy them directly without preserving the hidden
     // 240-line border area.
     if (videoOutput_) {
-        VideoFrame frame;
+        auto& frame = videoOutputFrame_;
         frame.width = ppu_.FrameWidth();
         frame.height = ppu_.FrameHeight();
         const uint32_t* src = ppu_.OutputData();
@@ -597,7 +599,7 @@ FrameStepResult Emulator::StepFrame(const FrameStepOptions& options) {
                 std::copy_n(row, frame.width, frame.pixels.data() + y * frame.width);
             }
         } else {
-            frame.pixels.resize(static_cast<size_t>(frame.width) * frame.height, 0xFF000000);
+            frame.pixels.assign(static_cast<size_t>(frame.width) * frame.height, 0xFF000000);
         }
         videoOutput_->Present(frame);
     }

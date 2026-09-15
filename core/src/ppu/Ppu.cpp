@@ -162,6 +162,7 @@ void Ppu::RecordRasterEvent(RasterEventType type, uint8_t index, const IO& befor
     if (x <= 0 || x >= 256) return;
 
     RasterEvent event;
+    event.hclock = currentHClock_;
     event.x = static_cast<uint16_t>(x);
     event.type = type;
     event.index = index;

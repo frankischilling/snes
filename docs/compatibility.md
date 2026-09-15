@@ -19,6 +19,8 @@ The frontend displays the selected mapping by name. Frame execution no longer re
 
 WRAM retains priority in banks $7E-$7F. Synthetic tests cover the added layouts, ROM mirrors, independent SRAM banks, and upper-half SRAM access. ExLoROM fixtures cover 5, 7, and 8 MiB images. These are address-decoding tests, not game compatibility tests for those boards.
 
+The [loader behavior](cartridge-devices.md#region-timing-and-loader-behavior) includes type-1 LoROM/HiROM interleaving, independent ExHiROM chip interleaving, and either physical chip order for 5–8 MiB extended images. These formats normalize into the existing board mappings before reset and CRC calculation.
+
 ## Battery saves
 
 The frontend loads a `.srm` file beside the ROM when the cartridge has SRAM. Changed SRAM is saved every 300 frames and on normal exit. Unchanged data does not rewrite the file, and cartridges without SRAM create no save file.

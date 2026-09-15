@@ -390,6 +390,7 @@ private:
     };
 
     struct RasterEvent {
+        uint16_t hclock = 0;
         uint16_t x = 0;
         RasterEventType type = RasterEventType::Display;
         uint8_t index = 0;

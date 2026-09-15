@@ -113,6 +113,10 @@ bool SdlAudioOutput::NeedsSamples() const {
     return QueuedBytes() < targetQueuedBytes_;
 }
 
+double SdlAudioOutput::QueuedMilliseconds() const {
+    return 1000.0 * QueuedBytes() / (sampleRate_ * 2 * sizeof(float));
+}
+
 void SdlAudioOutput::StartIfReady() {
     if (stream_ && playbackRequested_ && !playing_ && !NeedsSamples()) {
         if (!SDL_ResumeAudioStreamDevice(stream_)) {

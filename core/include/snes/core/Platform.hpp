@@ -57,12 +57,14 @@ struct LightGunState {
 class IVideoOutput {
 public:
     virtual ~IVideoOutput() = default;
+    // The frame is borrowed for this call; outputs retain their own copy if needed.
     virtual void Present(const VideoFrame& frame) = 0;
 };
 
 class IAudioOutput {
 public:
     virtual ~IAudioOutput() = default;
+    // The sample buffer is borrowed for this call and may be reused afterward.
     virtual void Submit(const AudioBuffer& buffer) = 0;
 };
 
