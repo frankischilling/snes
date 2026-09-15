@@ -27,6 +27,7 @@
 #include <cstring>
 #include <functional>
 #include <memory>
+#include <vector>
 
 namespace snes::core {
 
@@ -82,7 +83,7 @@ public:
     /// Set the current V counter (for vblank detection in OAM/VRAM access).
     /// The timing layer calls this each scanline so the PPU knows the current
     /// scanline position for display-disable checks.
-    void SetCurrentLine(uint16_t vcounter) noexcept { currentLine_ = vcounter; }
+    void SetCurrentLine(uint16_t vcounter) noexcept;
 
     /// Set the current horizontal master-clock count (for CGRAM gating).
     /// The timing layer calls this before PPU register accesses so the PPU
@@ -376,6 +377,23 @@ public:
     int CachedLineCount() const noexcept { return lineCount_; }
 
 private:
+    enum class RasterEventType : uint8_t {
+        Display,
+        Mosaic,
+        Scroll,
+        WindowSelect,
+    };
+
+    struct RasterEvent {
+        uint16_t line = 0;
+        uint16_t hclock = 0;
+        uint16_t x = 0;
+        RasterEventType type = RasterEventType::Display;
+        uint8_t index = 0;
+        IO before{};
+        IO after{};
+    };
+
     // Internal VRAM / OAM / CGRAM helpers
 
     /// VRAM address with translation mapping applied
@@ -405,10 +423,27 @@ private:
     /// Set first sprite for priority rotation
     void OamSetFirstObject();
 
+    /// Advance the per-line mosaic phase once, whether invoked by the timing
+    /// line-start hook or by direct scanline tests.
+    void AdvanceMosaicCounter(uint16_t line) noexcept;
+
+    /// Evaluate the current line's 32-object / 34-tile limits and update the
+    /// sticky status flags independently of OBJ screen enables.
+    void UpdateObjectOverflow(uint16_t line);
+
+    /// Record a visible-line register change for span-based raster rendering.
+    void RecordRasterEvent(RasterEventType type, uint8_t index, const IO& before);
+
+    /// Apply only the register family represented by an event to an IO state.
+    static void ApplyRasterEvent(IO& state, const RasterEvent& event, bool after);
+
     // Scanline rendering internals
 
     /// Render a single cached scanline.
     void RenderLine(Line& line);
+
+    /// Render one IO state over a logical 256-dot span of a cached scanline.
+    void RenderLineSpan(Line& line, const IO& state, int x0, int x1);
 
     /// Initialize above/below buffers with backdrop color.
     void InitLineBuffers(Line& line);
@@ -444,6 +479,11 @@ private:
     uint16_t CompositePixel(const Line& line, int x,
                             Pixel above, Pixel below) const;
 
+    /// Hires/pseudo-hires sub pixel.  Sub(x+1) uses the operation and color
+    /// window selected by Main(x), with Main(x) as the adjacent paired color.
+    uint16_t CompositeHiresSubPixel(const Line& line, int subX,
+                                    int controlX) const;
+
     /// Color math blend (add/subtract with saturation).
     uint16_t Blend(const Line& line, uint16_t x, uint16_t y,
                    bool halve) const;
@@ -476,6 +516,12 @@ private:
     std::unique_ptr<Line[]> lines_;
     int lineStart_ = 0;
     int lineCount_ = 0;
+    std::vector<RasterEvent> rasterEvents_;
+
+    // Mosaic progression normally happens from SetCurrentLine at H=0.  Direct
+    // renderer tests may call ScanlineBegin instead, so guard against a second
+    // update when both hooks are used.
+    uint16_t mosaicCounterLine_ = 0xffff;
 
     // Output framebuffer — 512×480 RGBA8888
     std::unique_ptr<uint32_t[]> output_;

@@ -1,0 +1,19 @@
+  IRQ - INC A           $0002
+  IRQ - LDA IMM8        $0002
+  IRQ - LDA16+INC       $0001
+  IRQ - INC+LDA16       $0002
+  IRQ - CLI+INC         $0001
+  IRQ - SEI+INC         $00FF
+  IRQ - SEI+CLI+INC     $0001
+  NMI - INC A           $0002
+  NMI - LDA IMM16       $0001
+  NMI - CLI+INC         $0001
+  W16:IRQ - INC A       $0001
+  W16:IRQ - LDA IMM8    $0001
+  W16:IRQ - LDA16+INC   $0001
+  W16:IRQ - INC+LDA16   $0001
+  W16:IRQ - CLI+INC     $0001
+  W16:IRQ - SEI+INC     $00FF
+  W16:NMI - INC A       $0001
+  W16:NMI - LDA IMM16   $0001
+  W16:NMI - CLI+INC     $0000

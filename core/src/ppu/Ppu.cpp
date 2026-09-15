@@ -55,6 +55,8 @@ void Ppu::Reset() {
     // Clear rendering state
     lineStart_ = 0;
     lineCount_ = 0;
+    rasterEvents_.clear();
+    mosaicCounterLine_ = 0xffff;
     std::memset(output_.get(), 0,
                 static_cast<size_t>(OutputWidth) * OutputHeight * sizeof(uint32_t));
 
@@ -83,9 +85,14 @@ void Ppu::FrameBegin() {
     // Reset scanline cache for new frame
     lineStart_ = 0;
     lineCount_ = 0;
+    rasterEvents_.clear();
+    mosaicCounterLine_ = 0xffff;
 }
 
-void Ppu::ScanlineBegin(uint16_t line) {
+void Ppu::AdvanceMosaicCounter(uint16_t line) noexcept {
+    if (line == 0 || line >= VDisp() || mosaicCounterLine_ == line) return;
+    mosaicCounterLine_ = line;
+
     bool mosaicEnable = io_.bg1.mosaicEnable || io_.bg2.mosaicEnable ||
                         io_.bg3.mosaicEnable || io_.bg4.mosaicEnable;
     if (line == 1) {
@@ -94,6 +101,144 @@ void Ppu::ScanlineBegin(uint16_t line) {
     if (io_.mosaic.counter && !--io_.mosaic.counter) {
         io_.mosaic.counter = mosaicEnable ? io_.mosaic.size : 0;
     }
+}
+
+void Ppu::SetCurrentLine(uint16_t vcounter) noexcept {
+    currentLine_ = vcounter;
+    AdvanceMosaicCounter(vcounter);
+    if (vcounter > 0 && vcounter < VDisp()) {
+        UpdateObjectOverflow(vcounter);
+    }
+}
+
+void Ppu::UpdateObjectOverflow(uint16_t line) {
+    if (line == 0 || line >= VDisp()) return;
+
+    ParseOam();
+    const auto& obj = io_.obj;
+    const uint8_t y = static_cast<uint8_t>(line);
+    int itemCount = 0;
+    int tileCount = 0;
+
+    for (int n = 0; n < 128; ++n) {
+        const uint8_t index = static_cast<uint8_t>((obj.first + n) & 127);
+        const auto& object = objects_[index];
+        const uint8_t width = object.size ? kObjLargeWidth[obj.baseSize]
+                                          : kObjSmallWidth[obj.baseSize];
+        uint8_t height = object.size ? kObjLargeHeight[obj.baseSize]
+                                     : kObjSmallHeight[obj.baseSize];
+        if (!object.size && obj.interlace && obj.baseSize >= 6) height = 16;
+
+        if (object.x > 256 && object.x + width - 1 < 512) continue;
+        const uint32_t effectiveHeight = height >> static_cast<uint32_t>(obj.interlace);
+        const uint32_t objectY = object.y;
+        const bool inRange = (y >= objectY && y < objectY + effectiveHeight) ||
+            (objectY + effectiveHeight >= 256 && y < ((objectY + effectiveHeight) & 0xff));
+        if (!inRange) continue;
+
+        if (itemCount >= 32) {
+            io_.obj.rangeOver = true;
+            break;
+        }
+        ++itemCount;
+
+        const uint16_t sx = object.x & 511;
+        for (int tileX = 0; tileX < width / 8; ++tileX) {
+            const uint16_t objectX = static_cast<uint16_t>((sx + tileX * 8) & 511);
+            if (sx != 256 && objectX >= 256 && objectX + 7 < 512) continue;
+            if (++tileCount > 34) io_.obj.timeOver = true;
+        }
+    }
+}
+
+void Ppu::RecordRasterEvent(RasterEventType type, uint8_t index, const IO& before) {
+    if (currentLine_ == 0 || currentLine_ >= VDisp()) return;
+    if (currentHClock_ < 88 || currentHClock_ >= 1096) return;
+
+    const int x = static_cast<int>(currentHClock_ / 4) - 22;
+    if (x <= 0 || x >= 256) return;
+
+    RasterEvent event;
+    event.line = currentLine_;
+    event.hclock = currentHClock_;
+    event.x = static_cast<uint16_t>(x);
+    event.type = type;
+    event.index = index;
+    event.before = before;
+    event.after = io_;
+    rasterEvents_.push_back(std::move(event));
+}
+
+void Ppu::ApplyRasterEvent(IO& state, const RasterEvent& event, bool after) {
+    const IO& value = after ? event.after : event.before;
+    auto copyLayerSelection = [](WindowLayer& dst, const WindowLayer& src) {
+        dst.oneEnable = src.oneEnable;
+        dst.oneInvert = src.oneInvert;
+        dst.twoEnable = src.twoEnable;
+        dst.twoInvert = src.twoInvert;
+    };
+    auto copyColorSelection = [](WindowColor& dst, const WindowColor& src) {
+        dst.oneEnable = src.oneEnable;
+        dst.oneInvert = src.oneInvert;
+        dst.twoEnable = src.twoEnable;
+        dst.twoInvert = src.twoInvert;
+    };
+
+    switch (event.type) {
+    case RasterEventType::Display:
+        state.displayDisable = value.displayDisable;
+        state.displayBrightness = value.displayBrightness;
+        break;
+    case RasterEventType::Mosaic:
+        state.mosaic = value.mosaic;
+        state.bg1.mosaicEnable = value.bg1.mosaicEnable;
+        state.bg2.mosaicEnable = value.bg2.mosaicEnable;
+        state.bg3.mosaicEnable = value.bg3.mosaicEnable;
+        state.bg4.mosaicEnable = value.bg4.mosaicEnable;
+        break;
+    case RasterEventType::Scroll: {
+        Background* bg = nullptr;
+        switch (event.index >> 1) {
+        case 0: bg = &state.bg1; break;
+        case 1: bg = &state.bg2; break;
+        case 2: bg = &state.bg3; break;
+        case 3: bg = &state.bg4; break;
+        default: break;
+        }
+        if (!bg) break;
+        const Background* sourceBg = nullptr;
+        switch (event.index >> 1) {
+        case 0: sourceBg = &value.bg1; break;
+        case 1: sourceBg = &value.bg2; break;
+        case 2: sourceBg = &value.bg3; break;
+        case 3: sourceBg = &value.bg4; break;
+        default: break;
+        }
+        if (!sourceBg) break;
+        if (event.index & 1) bg->voffset = sourceBg->voffset;
+        else bg->hoffset = sourceBg->hoffset;
+        if (event.index == 0) state.mode7.hoffset = value.mode7.hoffset;
+        if (event.index == 1) state.mode7.voffset = value.mode7.voffset;
+        break;
+    }
+    case RasterEventType::WindowSelect:
+        if (event.index == 0) {
+            copyLayerSelection(state.bg1.window, value.bg1.window);
+            copyLayerSelection(state.bg2.window, value.bg2.window);
+        } else if (event.index == 1) {
+            copyLayerSelection(state.bg3.window, value.bg3.window);
+            copyLayerSelection(state.bg4.window, value.bg4.window);
+        } else {
+            copyLayerSelection(state.obj.window, value.obj.window);
+            copyColorSelection(state.col.window, value.col.window);
+        }
+        break;
+    }
+}
+
+void Ppu::ScanlineBegin(uint16_t line) {
+    AdvanceMosaicCounter(line);
+    UpdateObjectOverflow(line);
 
     // Preserve the memory and register state used by this scanline.
     if (line > 0 && line < 240) {
@@ -102,7 +247,7 @@ void Ppu::ScanlineBegin(uint16_t line) {
         cache.fieldID = fieldId_;
         cache.io = io_;
 
-        if (io_.displayDisable || line >= VDisp()) {
+        if (line >= VDisp()) {
             cache.io.displayDisable = true;
         } else {
             std::memcpy(cache.cgram, cgram_.data(), sizeof(cache.cgram));
@@ -344,7 +489,7 @@ uint8_t Ppu::ReadIO(uint32_t addr, uint8_t openBus) {
 
     // $213E — STAT77 (PPU1 status: version + OBJ overflow flags)
     case 0x213E: {
-        latch_.ppu1.mdr = 0x01; // PPU1 version = 1
+        latch_.ppu1.mdr = (latch_.ppu1.mdr & 0x10) | 0x01; // bit 4 is open bus
         latch_.ppu1.mdr |= (io_.obj.rangeOver ? 1 : 0) << 6;
         latch_.ppu1.mdr |= (io_.obj.timeOver  ? 1 : 0) << 7;
         return latch_.ppu1.mdr;
@@ -388,11 +533,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
 
     // $2100 — INIDISP (display control)
     case 0x2100: {
+        const IO before = io_;
         if (io_.displayDisable && currentLine_ == VDisp()) {
             OamAddressReset();
         }
         io_.displayBrightness = data & 0x0F;
         io_.displayDisable    = (data >> 7) & 1;
+        RecordRasterEvent(RasterEventType::Display, 0, before);
         return;
     }
 
@@ -465,16 +612,27 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
 
     // $2106 — MOSAIC
     case 0x2106: {
+        const IO before = io_;
         bool wasMosaicEnabled = io_.bg1.mosaicEnable || io_.bg2.mosaicEnable ||
                                 io_.bg3.mosaicEnable || io_.bg4.mosaicEnable;
+        const uint8_t oldSize = io_.mosaic.size;
         io_.bg1.mosaicEnable = (data >> 0) & 1;
         io_.bg2.mosaicEnable = (data >> 1) & 1;
         io_.bg3.mosaicEnable = (data >> 2) & 1;
         io_.bg4.mosaicEnable = (data >> 3) & 1;
         io_.mosaic.size      = ((data >> 4) & 0x0F) + 1;
-        if (!wasMosaicEnabled && (data & 0x0F)) {
-            io_.mosaic.counter = io_.mosaic.size + 1;
+        const bool mosaicEnabled = (data & 0x0F) != 0;
+        if (mosaicEnabled && (!wasMosaicEnabled || oldSize != io_.mosaic.size ||
+            before.bg1.mosaicEnable != io_.bg1.mosaicEnable ||
+            before.bg2.mosaicEnable != io_.bg2.mosaicEnable ||
+            before.bg3.mosaicEnable != io_.bg3.mosaicEnable ||
+            before.bg4.mosaicEnable != io_.bg4.mosaicEnable)) {
+            io_.mosaic.counter = currentLine_ > 0 ? io_.mosaic.size
+                                                  : static_cast<uint8_t>(io_.mosaic.size + 1);
+        } else if (!mosaicEnabled) {
+            io_.mosaic.counter = 0;
         }
+        RecordRasterEvent(RasterEventType::Mosaic, 0, before);
         return;
     }
 
@@ -547,6 +705,7 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
     // $210D — BG1HOFS (BG1 horizontal scroll)
     // Also writes Mode 7 horizontal offset
     case 0x210D: {
+        const IO before = io_;
         io_.mode7.hoffset = static_cast<uint16_t>(data) << 8 | latch_.mode7;
         latch_.mode7 = data;
         io_.bg1.hoffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
@@ -557,12 +716,14 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG1HOFS data=%02X hoffset=$%04X\n",
                          currentLine_, data, io_.bg1.hoffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 0, before);
         return;
     }
 
     // $210E — BG1VOFS (BG1 vertical scroll)
     // Also writes Mode 7 vertical offset
     case 0x210E: {
+        const IO before = io_;
         io_.mode7.voffset = static_cast<uint16_t>(data) << 8 | latch_.mode7;
         latch_.mode7 = data;
         io_.bg1.voffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
@@ -572,11 +733,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG1VOFS data=%02X voffset=$%04X\n",
                          currentLine_, data, io_.bg1.voffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 1, before);
         return;
     }
 
     // $210F — BG2HOFS
     case 0x210F: {
+        const IO before = io_;
         io_.bg2.hoffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
                   (latch_.ppu1.bgofs & ~7) | (latch_.ppu2.bgofs & 7)) & 0x03FF);
         latch_.ppu1.bgofs = data;
@@ -585,11 +748,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG2HOFS data=%02X hoffset=$%04X\n",
                          currentLine_, data, io_.bg2.hoffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 2, before);
         return;
     }
 
     // $2110 — BG2VOFS
     case 0x2110: {
+        const IO before = io_;
         io_.bg2.voffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
                   latch_.ppu1.bgofs) & 0x03FF);
         latch_.ppu1.bgofs = data;
@@ -597,11 +762,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG2VOFS data=%02X voffset=$%04X\n",
                          currentLine_, data, io_.bg2.voffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 3, before);
         return;
     }
 
     // $2111 — BG3HOFS
     case 0x2111: {
+        const IO before = io_;
         io_.bg3.hoffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
                   (latch_.ppu1.bgofs & ~7) | (latch_.ppu2.bgofs & 7)) & 0x03FF);
         latch_.ppu1.bgofs = data;
@@ -610,11 +777,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG3HOFS data=%02X hoffset=$%04X\n",
                          currentLine_, data, io_.bg3.hoffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 4, before);
         return;
     }
 
     // $2112 — BG3VOFS
     case 0x2112: {
+        const IO before = io_;
         io_.bg3.voffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
                   latch_.ppu1.bgofs) & 0x03FF);
         latch_.ppu1.bgofs = data;
@@ -622,11 +791,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG3VOFS data=%02X voffset=$%04X\n",
                          currentLine_, data, io_.bg3.voffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 5, before);
         return;
     }
 
     // $2113 — BG4HOFS
     case 0x2113: {
+        const IO before = io_;
         io_.bg4.hoffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
                   (latch_.ppu1.bgofs & ~7) | (latch_.ppu2.bgofs & 7)) & 0x03FF);
         latch_.ppu1.bgofs = data;
@@ -635,11 +806,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG4HOFS data=%02X hoffset=$%04X\n",
                          currentLine_, data, io_.bg4.hoffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 6, before);
         return;
     }
 
     // $2114 — BG4VOFS
     case 0x2114: {
+        const IO before = io_;
         io_.bg4.voffset = static_cast<uint16_t>(((static_cast<uint16_t>(data) << 8) |
                   latch_.ppu1.bgofs) & 0x03FF);
         latch_.ppu1.bgofs = data;
@@ -647,6 +820,7 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
             std::fprintf(stderr, "[PPU-DBG l=%u] BG4VOFS data=%02X voffset=$%04X\n",
                          currentLine_, data, io_.bg4.voffset);
         }
+        RecordRasterEvent(RasterEventType::Scroll, 7, before);
         return;
     }
 
@@ -761,6 +935,7 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
 
     // $2123 — W12SEL (window mask settings for BG1/BG2)
     case 0x2123: {
+        const IO before = io_;
         io_.bg1.window.oneInvert = (data >> 0) & 1;
         io_.bg1.window.oneEnable = (data >> 1) & 1;
         io_.bg1.window.twoInvert = (data >> 2) & 1;
@@ -769,11 +944,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
         io_.bg2.window.oneEnable = (data >> 5) & 1;
         io_.bg2.window.twoInvert = (data >> 6) & 1;
         io_.bg2.window.twoEnable = (data >> 7) & 1;
+        RecordRasterEvent(RasterEventType::WindowSelect, 0, before);
         return;
     }
 
     // $2124 — W34SEL (window mask settings for BG3/BG4)
     case 0x2124: {
+        const IO before = io_;
         io_.bg3.window.oneInvert = (data >> 0) & 1;
         io_.bg3.window.oneEnable = (data >> 1) & 1;
         io_.bg3.window.twoInvert = (data >> 2) & 1;
@@ -782,11 +959,13 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
         io_.bg4.window.oneEnable = (data >> 5) & 1;
         io_.bg4.window.twoInvert = (data >> 6) & 1;
         io_.bg4.window.twoEnable = (data >> 7) & 1;
+        RecordRasterEvent(RasterEventType::WindowSelect, 1, before);
         return;
     }
 
     // $2125 — WOBJSEL (window mask settings for OBJ/color)
     case 0x2125: {
+        const IO before = io_;
         io_.obj.window.oneInvert = (data >> 0) & 1;
         io_.obj.window.oneEnable = (data >> 1) & 1;
         io_.obj.window.twoInvert = (data >> 2) & 1;
@@ -795,6 +974,7 @@ void Ppu::WriteIO(uint32_t addr, uint8_t data) {
         io_.col.window.oneEnable = (data >> 5) & 1;
         io_.col.window.twoInvert = (data >> 6) & 1;
         io_.col.window.twoEnable = (data >> 7) & 1;
+        RecordRasterEvent(RasterEventType::WindowSelect, 2, before);
         return;
     }
 

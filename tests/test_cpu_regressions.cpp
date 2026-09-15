@@ -177,6 +177,53 @@ void WaitInterrupt() {
     Check("Masked IRQ leaves stack alone", unsigned(bus.writes.size()), 0);
 }
 
+void StackInstructionTiming() {
+    // W65C816S table 5-4: (d,S),Y takes seven cycles with an 8-bit
+    // accumulator, eight with a 16-bit accumulator; PER always takes six.
+    for (unsigned flags : {0u, 0x10u, 0x20u, 0x30u}) {
+        for (unsigned opcode : {0x13u, 0x33u, 0x53u, 0x73u, 0x93u, 0xb3u, 0xd3u, 0xf3u}) {
+            for (unsigned index : {0u, 0xffu}) {
+                Bus bus;
+                SnesCpu cpu(bus);
+                cpu.Reset();
+                auto& r = cpu.regs();
+                r.e = false;
+                r.p = uint8_t(flags | Processor65816::FlagI);
+                r.s = 0x1f0;
+                r.y = uint16_t(index);
+                r.a = 0x2153;
+                bus.ram[0x8000] = uint8_t(opcode);
+                bus.ram[0x8001] = 0x10;
+                bus.ram[0x200] = 0x80;
+                bus.ram[0x201] = 0x20;
+                bus.ram[0x2080 + index] = 0x35;
+                bus.ram[0x2081 + index] = 0x42;
+                const unsigned width = (flags & 0x20) ? 1 : 2;
+                const unsigned beforeReads = bus.reads;
+                Check("Indirect stack instruction clocks", cpu.Step(), (6 + width) * 6);
+                Check("Indirect stack bus reads", bus.reads - beforeReads,
+                      opcode == 0x93 ? 4 : 4 + width);
+                Check("Indirect stack bus writes", unsigned(bus.writes.size()), opcode == 0x93 ? width : 0);
+                Check("Indirect stack preserves stack pointer", r.s, 0x1f0);
+            }
+        }
+        for (bool emulation : {false, true}) {
+            Bus bus;
+            SnesCpu cpu(bus);
+            cpu.Reset();
+            cpu.regs().e = emulation;
+            cpu.regs().p = uint8_t(flags | Processor65816::FlagI | (emulation ? 0x30 : 0));
+            bus.ram[0x8000] = 0x62;
+            bus.ram[0x8001] = 0xfd;
+            bus.ram[0x8002] = 0xff;
+            const unsigned stack = cpu.regs().s;
+            Check("PER instruction clocks", cpu.Step(), 36);
+            Check("PER pushes the relative target high byte", bus.ram[stack], 0x80);
+            Check("PER pushes the relative target low byte", bus.ram[(stack - 1) & 0xffff], 0x00);
+        }
+    }
+}
+
 void Stop() {
     for (bool pending : {false, true}) {
         Bus bus;
@@ -205,7 +252,7 @@ void Stop() {
 
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view(argv[1]) == "stop") Stop();
-    else { InterruptStack(); ExtendedStackInstructions(); WaitInterrupt(); }
+    else { InterruptStack(); ExtendedStackInstructions(); WaitInterrupt(); StackInstructionTiming(); }
     std::printf("%d CPU checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

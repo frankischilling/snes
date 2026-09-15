@@ -12,7 +12,12 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
+#include <coroutine>
 #include <cstdint>
+#include <exception>
+#include <memory_resource>
+#include <utility>
 
 namespace snes::core {
 
@@ -87,17 +92,161 @@ public:
     // Execution
     void Power();             // Reset to power-on state
     void Step();              // Execute one instruction
+    void StepCycle();         // Execute exactly one bus/idle cycle
     uint64_t CycleCount() const { return cycles_; }
+    [[nodiscard]] bool InstructionInProgress() const noexcept;
 
 protected:
     uint64_t cycles_ = 0;    // Total cycles consumed
 
+    void* AllocateCoroutineFrame(std::size_t size);
+    static void ReleaseCoroutineFrame(void* frame) noexcept;
+
+    class Routine {
+    public:
+        struct promise_type;
+        using Handle = std::coroutine_handle<promise_type>;
+
+        struct promise_type {
+            std::coroutine_handle<> continuation{};
+            std::exception_ptr exception{};
+
+            template <typename... Args>
+            static void* operator new(std::size_t size, Spc700& cpu, Args&&...) {
+                return cpu.AllocateCoroutineFrame(size);
+            }
+
+            static void operator delete(void* ptr, std::size_t size) noexcept {
+                (void)size;
+                ReleaseCoroutineFrame(ptr);
+            }
+
+            Routine get_return_object() noexcept { return Routine(Handle::from_promise(*this)); }
+            std::suspend_always initial_suspend() const noexcept { return {}; }
+
+            struct FinalAwaiter {
+                bool await_ready() const noexcept { return false; }
+                std::coroutine_handle<> await_suspend(Handle handle) const noexcept {
+                    auto continuation = handle.promise().continuation;
+                    return continuation ? continuation : std::noop_coroutine();
+                }
+                void await_resume() const noexcept {}
+            };
+
+            FinalAwaiter final_suspend() const noexcept { return {}; }
+            void return_void() const noexcept {}
+            void unhandled_exception() noexcept { exception = std::current_exception(); }
+        };
+
+        Routine() = default;
+        explicit Routine(Handle handle) noexcept : handle_(handle) {}
+        Routine(const Routine&) = delete;
+        Routine& operator=(const Routine&) = delete;
+        Routine(Routine&& other) noexcept : handle_(std::exchange(other.handle_, {})) {}
+        Routine& operator=(Routine&& other) noexcept {
+            if (this == &other) return *this;
+            Reset();
+            handle_ = std::exchange(other.handle_, {});
+            return *this;
+        }
+        ~Routine() { Reset(); }
+
+        struct Awaiter {
+            Handle handle;
+            bool await_ready() const noexcept { return !handle || handle.done(); }
+            std::coroutine_handle<> await_suspend(std::coroutine_handle<> continuation) const noexcept {
+                handle.promise().continuation = continuation;
+                return handle;
+            }
+            void await_resume() const {
+                if (handle && handle.promise().exception) std::rethrow_exception(handle.promise().exception);
+            }
+        };
+
+        Awaiter operator co_await() const noexcept { return Awaiter{handle_}; }
+        [[nodiscard]] Handle GetHandle() const noexcept { return handle_; }
+        [[nodiscard]] bool Done() const noexcept { return handle_ && handle_.done(); }
+        explicit operator bool() const noexcept { return static_cast<bool>(handle_); }
+        void RethrowIfFailed() const {
+            if (handle_ && handle_.promise().exception) std::rethrow_exception(handle_.promise().exception);
+        }
+        void Reset() noexcept {
+            if (handle_) handle_.destroy();
+            handle_ = {};
+        }
+
+    private:
+        Handle handle_{};
+    };
+
+    enum class PendingCycleKind : uint8_t { None, Idle, Read, Write };
+    struct PendingCycle {
+        PendingCycleKind kind = PendingCycleKind::None;
+        uint16_t address = 0;
+        uint8_t data = 0;
+        uint8_t* readResult = nullptr;
+    };
+
+    struct IdleCycle {
+        Spc700* cpu;
+        bool await_ready() const noexcept { return false; }
+        void await_suspend(std::coroutine_handle<> handle) const noexcept;
+        void await_resume() const noexcept {}
+    };
+
+    struct ReadCycle {
+        Spc700* cpu;
+        uint16_t address;
+        uint8_t result = 0;
+        bool await_ready() const noexcept { return false; }
+        void await_suspend(std::coroutine_handle<> handle) noexcept;
+        uint8_t await_resume() const noexcept { return result; }
+    };
+
+    struct WriteCycle {
+        Spc700* cpu;
+        uint16_t address;
+        uint8_t data;
+        bool await_ready() const noexcept { return false; }
+        void await_suspend(std::coroutine_handle<> handle) const noexcept;
+        void await_resume() const noexcept {}
+    };
+
+    struct InstructionBoundary {
+        Spc700* cpu;
+        bool await_ready() const noexcept { return false; }
+        void await_suspend(std::coroutine_handle<> handle) const noexcept;
+        void await_resume() const noexcept {}
+    };
+
+    struct alignas(std::max_align_t) CoroutineFrameHeader {
+        std::pmr::memory_resource* resource = nullptr;
+        std::size_t allocationSize = 0;
+    };
+
+    // The pool belongs to this CPU. It is deliberately declared before the
+    // executor so reverse-order destruction releases every live frame first.
+    std::pmr::unsynchronized_pool_resource framePool_{
+        std::pmr::pool_options{64, 8192}};
+    Routine executor_{};
+    std::coroutine_handle<> activeCoroutine_{};
+    PendingCycle pendingCycle_{};
+    bool atInstructionBoundary_ = true;
+
+    void BeginInstruction();
+    void ResumeToCycleBoundary();
+    void CheckExecutor();
+    Routine ExecuteInstructions();
+
     // Memory access helpers
-    uint8_t Fetch();                              // read(PC++)
-    uint8_t Load(uint8_t addr);                   // read(dp | addr)
-    void    Store(uint8_t addr, uint8_t data);    // write(dp | addr, data)
-    uint8_t Pull();                               // read(0x100 | ++S)
-    void    Push(uint8_t data);                    // write(0x100 | S--, data)
+    IdleCycle  WaitCycle() noexcept { return IdleCycle{this}; }
+    ReadCycle  Fetch();                              // read(PC++)
+    ReadCycle  Load(uint8_t addr);                   // read(dp | addr)
+    WriteCycle Store(uint8_t addr, uint8_t data);    // write(dp | addr, data)
+    ReadCycle  Pull();                               // read(0x100 | ++S)
+    WriteCycle Push(uint8_t data);                    // write(0x100 | S--, data)
+    ReadCycle  ReadCycleAt(uint16_t address) noexcept { return ReadCycle{this, address}; }
+    WriteCycle WriteCycleAt(uint16_t address, uint8_t data) noexcept { return WriteCycle{this, address, data}; }
 
     // ALU algorithms — 8-bit
     uint8_t AlgADC(uint8_t x, uint8_t y);
@@ -128,92 +277,92 @@ protected:
     using AlgOp16 = uint16_t (Spc700::*)(uint16_t, uint16_t);
 
     // Addressing mode instruction groups
-    void InstrImmediateRead(AlgOp op, uint8_t& target);
-    void InstrDirectRead(AlgOp op, uint8_t& target);
-    void InstrDirectModify(ModOp op);
-    void InstrDirectWrite(uint8_t data);
-    void InstrDirectIndexedRead(AlgOp op, uint8_t& target, uint8_t index);
-    void InstrDirectIndexedModify(ModOp op, uint8_t index);
-    void InstrDirectIndexedWrite(uint8_t data, uint8_t index);
-    void InstrAbsoluteRead(AlgOp op, uint8_t& target);
-    void InstrAbsoluteModify(ModOp op);
-    void InstrAbsoluteWrite(uint8_t data);
-    void InstrAbsoluteIndexedRead(AlgOp op, uint8_t index);
-    void InstrAbsoluteIndexedWrite(uint8_t index);
-    void InstrIndexedIndirectRead(AlgOp op, uint8_t index);
-    void InstrIndexedIndirectWrite(uint8_t data, uint8_t index);
-    void InstrIndirectIndexedRead(AlgOp op, uint8_t index);
-    void InstrIndirectIndexedWrite(uint8_t data, uint8_t index);
-    void InstrIndirectXRead(AlgOp op);
-    void InstrIndirectXWrite(uint8_t data);
-    void InstrIndirectXIncrementRead(uint8_t& target);
-    void InstrIndirectXIncrementWrite(uint8_t data);
-    void InstrIndirectXCompareIndirectY(AlgOp op);
-    void InstrIndirectXWriteIndirectY(AlgOp op);
+    Routine InstrImmediateRead(AlgOp op, uint8_t& target);
+    Routine InstrDirectRead(AlgOp op, uint8_t& target);
+    Routine InstrDirectModify(ModOp op);
+    Routine InstrDirectWrite(uint8_t data);
+    Routine InstrDirectIndexedRead(AlgOp op, uint8_t& target, uint8_t index);
+    Routine InstrDirectIndexedModify(ModOp op, uint8_t index);
+    Routine InstrDirectIndexedWrite(uint8_t data, uint8_t index);
+    Routine InstrAbsoluteRead(AlgOp op, uint8_t& target);
+    Routine InstrAbsoluteModify(ModOp op);
+    Routine InstrAbsoluteWrite(uint8_t data);
+    Routine InstrAbsoluteIndexedRead(AlgOp op, uint8_t index);
+    Routine InstrAbsoluteIndexedWrite(uint8_t index);
+    Routine InstrIndexedIndirectRead(AlgOp op, uint8_t index);
+    Routine InstrIndexedIndirectWrite(uint8_t data, uint8_t index);
+    Routine InstrIndirectIndexedRead(AlgOp op, uint8_t index);
+    Routine InstrIndirectIndexedWrite(uint8_t data, uint8_t index);
+    Routine InstrIndirectXRead(AlgOp op);
+    Routine InstrIndirectXWrite(uint8_t data);
+    Routine InstrIndirectXIncrementRead(uint8_t& target);
+    Routine InstrIndirectXIncrementWrite(uint8_t data);
+    Routine InstrIndirectXCompareIndirectY(AlgOp op);
+    Routine InstrIndirectXWriteIndirectY(AlgOp op);
 
     // Direct-Direct, Direct-Immediate
-    void InstrDirectDirectCompare(AlgOp op);
-    void InstrDirectDirectModify(AlgOp op);
-    void InstrDirectDirectWrite();
-    void InstrDirectImmediateCompare(AlgOp op);
-    void InstrDirectImmediateModify(AlgOp op);
-    void InstrDirectImmediateWrite();
+    Routine InstrDirectDirectCompare(AlgOp op);
+    Routine InstrDirectDirectModify(AlgOp op);
+    Routine InstrDirectDirectWrite();
+    Routine InstrDirectImmediateCompare(AlgOp op);
+    Routine InstrDirectImmediateModify(AlgOp op);
+    Routine InstrDirectImmediateWrite();
 
     // 16-bit word operations
-    void InstrDirectCompareWord(AlgOp16 op);
-    void InstrDirectReadWord(AlgOp16 op);
-    void InstrDirectModifyWord(int16_t adjust);
-    void InstrDirectWriteWord();
+    Routine InstrDirectCompareWord(AlgOp16 op);
+    Routine InstrDirectReadWord(AlgOp16 op);
+    Routine InstrDirectModifyWord(int16_t adjust);
+    Routine InstrDirectWriteWord();
 
     // Bit operations
-    void InstrAbsoluteBitModify(uint8_t mode);
-    void InstrAbsoluteBitSet(uint8_t bit, bool value);
-    void InstrTestSetBitsAbsolute(bool set);
+    Routine InstrAbsoluteBitModify(uint8_t mode);
+    Routine InstrAbsoluteBitSet(uint8_t bit, bool value);
+    Routine InstrTestSetBitsAbsolute(bool set);
 
     // Branches
-    void InstrBranch(bool take);
-    void InstrBranchBit(uint8_t bit, bool match);
-    void InstrBranchNotDirect();
-    void InstrBranchNotDirectIndexed(uint8_t index);
-    void InstrBranchNotDirectDecrement();
-    void InstrBranchNotYDecrement();
+    Routine InstrBranch(bool take);
+    Routine InstrBranchBit(uint8_t bit, bool match);
+    Routine InstrBranchNotDirect();
+    Routine InstrBranchNotDirectIndexed(uint8_t index);
+    Routine InstrBranchNotDirectDecrement();
+    Routine InstrBranchNotYDecrement();
 
     // Flow control
-    void InstrCallAbsolute();
-    void InstrCallPage();
-    void InstrCallTable(uint8_t vector);
-    void InstrJumpAbsolute();
-    void InstrJumpIndirectX();
-    void InstrReturnSubroutine();
-    void InstrReturnInterrupt();
-    void InstrBreak();
+    Routine InstrCallAbsolute();
+    Routine InstrCallPage();
+    Routine InstrCallTable(uint8_t vector);
+    Routine InstrJumpAbsolute();
+    Routine InstrJumpIndirectX();
+    Routine InstrReturnSubroutine();
+    Routine InstrReturnInterrupt();
+    Routine InstrBreak();
 
     // Register transfer
-    void InstrTransfer(uint8_t from, uint8_t& to);
+    Routine InstrTransfer(uint8_t from, uint8_t& to);
 
     // Push/Pull
-    void InstrPush(uint8_t data);
-    void InstrPull(uint8_t& target);
-    void InstrPushP();
-    void InstrPullP();
+    Routine InstrPush(uint8_t data);
+    Routine InstrPull(uint8_t& target);
+    Routine InstrPushP();
+    Routine InstrPullP();
 
     // Flag manipulation
-    void InstrFlagSet(bool& flag, bool value);
-    void InstrOverflowClear();
-    void InstrComplementCarry();
+    Routine InstrFlagSet(bool& flag, bool value);
+    Routine InstrOverflowClear();
+    Routine InstrComplementCarry();
 
     // Implied register ops
-    void InstrImpliedModify(ModOp op, uint8_t& target);
+    Routine InstrImpliedModify(ModOp op, uint8_t& target);
 
     // Special instructions
-    void InstrMultiply();
-    void InstrDivide();
-    void InstrDecimalAdjustAdd();
-    void InstrDecimalAdjustSub();
-    void InstrExchangeNibble();
-    void InstrNoOperation();
-    void InstrSleep();
-    void InstrStop();
+    Routine InstrMultiply();
+    Routine InstrDivide();
+    Routine InstrDecimalAdjustAdd();
+    Routine InstrDecimalAdjustSub();
+    Routine InstrExchangeNibble();
+    Routine InstrNoOperation();
+    Routine InstrSleep();
+    Routine InstrStop();
 };
 
 } // namespace snes::core

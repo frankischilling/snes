@@ -69,6 +69,49 @@ void HBlankWithinInstruction() {
     Check((cpu.regs().a & 0x40) != 0, "HVBJOY sees HBlank reached during operand fetches");
 }
 
+void SoundPortDeadlines() {
+    for (Region region : {Region::NTSC, Region::PAL}) {
+        for (uint8_t port = 0; port < 4; ++port) {
+            for (bool mirror : {false, true}) {
+                const uint8_t cpuPort = uint8_t((mirror ? 0x7c : 0x40) + port);
+                auto reader = Machine({0xad, cpuPort, 0x21, 0xad, cpuPort, 0x21,
+                    0xad, cpuPort, 0x21, 0xad, cpuPort, 0x21, 0xad, cpuPort, 0x21});
+                reader->GetTiming().SetRegion(region);
+                auto& sound = reader->GetSmp();
+                sound.Power();
+                sound.IoState().iplRomEnable = false;
+                sound.r.pc = 0x200;
+                sound.Ram()[0x200] = 0x8f; // MOV port,#$A5: store on cycle five.
+                sound.Ram()[0x201] = 0xa5;
+                sound.Ram()[0x202] = uint8_t(0xf4 + port);
+                for (unsigned instruction = 0; instruction < 5; ++instruction) {
+                    reader->GetCpu()->Step();
+                    Check(reader->GetCpu()->regs().a == (instruction < 3 ? 0 : 0xa5),
+                          "Console reads cannot observe a sound-port store before its cycle");
+                    const auto target = reader->GetTiming().MasterClocksElapsed() * 1024000 /
+                                        reader->GetTiming().MasterClockHz();
+                    Check(sound.CycleCount() == target, "SMP follows the region clock ratio without overshoot");
+                }
+
+                auto writer = Machine({0x8d, cpuPort, 0x21});
+                writer->GetTiming().SetRegion(region);
+                auto& receiver = writer->GetSmp();
+                receiver.Power();
+                receiver.IoState().iplRomEnable = false;
+                receiver.r.pc = 0x200;
+                receiver.Ram()[0x200] = 0xe4; // MOV A,port: read on cycle three.
+                receiver.Ram()[0x201] = uint8_t(0xf4 + port);
+                writer->GetCpu()->regs().a = 0x6b;
+                writer->GetCpu()->Step();
+                Check(receiver.r.a == 0, "SMP port read remains pending after the console store");
+                while (receiver.CycleCount() < 3) writer->GetCpu()->idle();
+                Check(receiver.r.a == 0x6b,
+                      "Sound read observes a console write arriving between opcode and data cycles");
+            }
+        }
+    }
+}
+
 struct CpuBus : ICpuBus {
     std::array<uint8_t, 65536> bytes{};
     CpuBus() {
@@ -181,7 +224,7 @@ void DmaStartupCycle() {
 
 int main() {
     try {
-        WordAccessesAdvanceHardware(); HBlankWithinInstruction();
+        WordAccessesAdvanceHardware(); HBlankWithinInstruction(); SoundPortDeadlines();
         InterruptMaskSampling(); NmiInsideInstruction(); EnableNmiDuringVblank(); DmaStartupCycle();
     } catch (const std::exception& error) {
         std::fprintf(stderr, "%s\n", error.what());

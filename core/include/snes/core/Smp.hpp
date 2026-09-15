@@ -85,8 +85,9 @@ public:
     static constexpr uint64_t kClockFrequency    = 1024000; // ~1.024 MHz
     static constexpr int      kDspSampleInterval = 32;      // SMP clocks per DSP sample
 
-    // Batch execution — run SMP until CycleCount() >= targetCycles.
-    // Each Step() executes one SPC700 instruction (consuming 2-8+ bus cycles).
+    // Batch execution — run SMP through exactly targetCycles.
+    // Instructions may pause between bus/idle cycles at the deadline; Step()
+    // remains available for callers that intentionally want a full instruction.
     // DSP samples and timers are ticked automatically during bus operations.
     void RunUntil(uint64_t targetCycles);
 

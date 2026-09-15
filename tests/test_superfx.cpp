@@ -189,6 +189,43 @@ void ArithmeticMatrix() {
     Check(cases == 6240, "All ALU register/immediate encodings were exercised");
 }
 
+void ExpandedCpuWindows() {
+    Fixture f(0xb00000, 0x100000);
+    f.rom[0x7fd7] = 14;
+    for (unsigned bank = 0; bank < 0xb0; ++bank) f.rom[bank * 0x10000 + 0x234] = uint8_t(bank);
+    Check(f.chip.ReadCpu(0x800234, 0x51) == 0x51 && f.chip.ReadCpu(0x808234) == 0x20 &&
+          f.chip.ReadCpu(0xc00234) == 0x40 && f.chip.ReadCpu(0x600234) == 0xa0,
+          "CPU expansion changes ROM windows without claiming low system memory");
+    f.chip.WriteCpu(0x700234, 0x19);
+    f.chip.WriteCpu(0x740234, 0x29);
+    Check(f.chip.ReadCpu(0x700234) == 0x19 && f.chip.ReadCpu(0x740234) == 0x29,
+          "CPU RAM extension keeps address bit eighteen");
+    f.Reg(0, 7); f.Reg(1, 0x0234);
+    f.Program({0x3e, 0xdf, 0x41, 0, 1});
+    f.ram[0x10234] = 0x67;
+    f.ram[0x30234] = 0x87;
+    f.ram[0x70234] = 0x98;
+    f.Run();
+    Check(f.Reg(0) == 0x67 && f.chip.ReadCpu(0x303c) == 1,
+          "GSU RAMB retains its one-bit register when CPU-only expansion RAM is present");
+    f.Reg(0, 0x40); f.Reg(14, 0x234);
+    f.Program({0x3f, 0xdf, 0xde, 0xee, 0xef, 0, 1});
+    f.Run();
+    Check(f.Reg(0) == 0 && f.chip.ReadCpu(0x400234) == 0x80,
+          "GSU ROM reads still see the first two MiB through its own bank decoder");
+
+    Fixture partial(0x900000);
+    partial.rom[0x7fd7] = 14;
+    partial.rom[0x800123] = 0x76;
+    Check(partial.chip.ReadCpu(0x400123) == 0x76 && partial.chip.ReadCpu(0x600123) == 0x76,
+          "A partly populated final ROM region mirrors its connected address lines");
+    Fixture shortImage(0x200000);
+    shortImage.rom[0x7fd7] = 14;
+    shortImage.chip.WriteCpu(0xf00123, 0x75);
+    Check(shortImage.chip.ReadCpu(0xf00123, 0x5a) == 0x5a && shortImage.ram[0x123] == 0,
+          "Unpopulated expanded ROM reads open bus and cannot alias small-board RAM");
+}
+
 void TransfersAndSpecialOperations() {
     for (unsigned mode = 0; mode < 4; ++mode) {
         for (unsigned n = 0; n < 16; ++n) {
@@ -337,14 +374,22 @@ void RamInstructions() {
             Check((g.chip.ReadCpu(0x3030) & 0x1e) == 0x1e, "RAM loads preserve arithmetic flags");
         }
     }
-    Fixture f(0x8000, 0x40000);
-    f.Reg(0, 3);
-    f.Program({0x3e, 0xdf, 0xa1, 0x21, 0x41, 0xa0, 0x5a, 0x90, 0, 1});
-    f.ram[0x30021] = 0x34; f.ram[0x30020] = 0x12;
-    f.Run();
-    Check(f.chip.ReadCpu(0x303c) == 3 && f.ram[0x30021] == 0x5a && f.ram[0x30020] == 0,
-          "RAMB selects all connected banks and SBK uses the last load address");
-    Check(f.ram[0x21] == 0, "GSU RAM banking does not overwrite another bank");
+    // Nintendo Book II 2-4-6: RAMBR contains only A16. Extra CPU RAM
+    // address lines cannot turn the reserved bits into GSU bank selects.
+    for (unsigned selected = 0; selected < 256; ++selected) {
+        Fixture f(0x8000, 0x40000);
+        f.Reg(0, uint16_t(selected));
+        f.Program({0x3e, 0xdf, 0xa1, 0x21, 0x41, 0xa0, 0x5a, 0x90, 0, 1});
+        const unsigned base = (selected & 1) << 16;
+        f.ram[base + 0x21] = 0x34; f.ram[base + 0x20] = 0x12;
+        f.ram[0x30021] = 0x87;
+        f.Run();
+        Check(f.chip.ReadCpu(0x303c) == (selected & 1) &&
+              f.ram[base + 0x21] == 0x5a && f.ram[base + 0x20] == 0,
+              "RAMB selects bank 70/71 and SBK uses the last load address");
+        Check(f.ram[(base ^ 0x10000) + 0x21] == 0 && f.ram[0x30021] == 0x87,
+              "GSU banked access leaves other CPU RAM banks untouched");
+    }
 }
 
 void RomBufferInstructions() {
@@ -584,7 +629,7 @@ void CacheBoundaryAndClockModes() {
 
 int main() {
     try {
-        RegistersAndMapping(); ArithmeticMatrix(); TransfersAndSpecialOperations();
+        RegistersAndMapping(); ExpandedCpuWindows(); ArithmeticMatrix(); TransfersAndSpecialOperations();
         BranchesAndPipeline(); RamInstructions(); RomBufferInstructions();
         PixelsAndScreenModes(); CacheAndSynchronization(); CacheBoundaryAndClockModes();
     } catch (const std::exception& error) {

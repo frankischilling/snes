@@ -151,10 +151,65 @@ void SuperFxIntegration() {
     bus.Write(0x711234, 0x87);
     Check(machine->LoadedCartridge()->SramData()[0x11234] == 0x87, "GSU2 RAM remains at its separate banks");
 }
+
+void SuperFxExtendedBoards() {
+    auto rom = Rom(0x20, 0x1a, 0x400000);
+    rom[0x7fda] = 0x33;
+    rom[0x7fbd] = 8;
+    auto machine = Machine(rom);
+    auto& bus = machine->GetBus();
+    bus.Write(0x721234, 0x42);
+    bus.Write(0x731234, 0x63);
+    Check(machine->LoadedCartridge()->SramData()[0x21234] == 0x42 &&
+          machine->LoadedCartridge()->SramData()[0x31234] == 0x63,
+          "Console bus exposes all four connected GSU RAM banks");
+    Check(bus.Read(0x721234) == 0x42 && bus.Read(0x731234) == 0x63,
+          "Extended GSU RAM reads reach the same saved storage");
+
+    rom[0x7fbd] = 10;
+    Check(machine->LoadCartridge(rom), "Load a GSU board with one MiB of CPU RAM");
+    for (unsigned bank = 0x70; bank <= 0x7d; ++bank)
+        bus.Write((bank << 16) | 0x1234, uint8_t(bank));
+    for (unsigned bank = 0x70; bank <= 0x7d; ++bank) {
+        Check(bus.Read((bank << 16) | 0x1234) == bank &&
+              machine->LoadedCartridge()->SramData()[((bank - 0x70) << 16) | 0x1234] == bank,
+              "CPU expansion RAM banks retain independent address lines");
+    }
+    bus.Write(0x7e1234, 0x91);
+    bus.Write(0x7f1234, 0xa2);
+    Check(bus.Read(0x7e1234) == 0x91 && bus.Read(0x7f1234) == 0xa2 &&
+          bus.Read(0x761234) == 0x76,
+          "Console WRAM has priority over expansion RAM at banks 7E and 7F");
+
+    auto expanded = Rom(0x20, 0x1a, 0xb00000);
+    for (size_t bank = 0; bank < expanded.size() / 0x10000; ++bank) {
+        expanded[bank * 0x10000 + 0x1234] = uint8_t(bank);
+        expanded[bank * 0x10000 + 0x9234] = uint8_t(bank);
+    }
+    expanded[0x7fd7] = 14;
+    expanded[0x7fda] = 0x33;
+    expanded[0x7fbd] = 8;
+    Check(machine->LoadCartridge(expanded), "Load an eleven-MiB GSU image with the extended layout marker");
+    for (unsigned bank = 0; bank < 0x40; ++bank) {
+        Check(bus.Read((bank << 16) | 0x9234) == bank / 2 &&
+              bus.Read(((bank + 0x80) << 16) | 0x9234) == 0x20 + bank / 2,
+              "Extended GSU system windows select separate two-MiB ROM regions");
+        Check(bus.Read(((bank + 0xc0) << 16) | 0x1234) == 0x40 + bank,
+              "Extended GSU upper linear window selects ROM bytes four through eight MiB");
+    }
+    for (unsigned bank = 0x40; bank <= 0x6f; ++bank)
+        Check(bus.Read((bank << 16) | 0x1234) == bank + 0x40,
+              "Extended GSU lower linear window exposes the final three MiB");
+    bus.Write(0x601234, 0);
+    Check(bus.Read(0x601234) == 0xa0, "Extended GSU ROM windows ignore writes");
+    bus.Write(0x731234, 0xd7);
+    Check(machine->LoadedCartridge()->SramData()[0x31234] == 0xd7,
+          "Extended ROM retains the separate four-bank RAM window");
+}
 }
 
 int main() {
-    try { Sa1Integration(); Sa1Expansion(); SuperFxIntegration(); }
+    try { Sa1Integration(); Sa1Expansion(); SuperFxIntegration(); SuperFxExtendedBoards(); }
     catch (const std::exception& error) { std::fprintf(stderr, "%s\n", error.what()); return 1; }
     std::puts("Cartridge processor bus, scheduling, IRQ and save integration checks passed");
 }
