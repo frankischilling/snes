@@ -386,7 +386,6 @@ private:
     };
 
     struct RasterEvent {
-        uint16_t line = 0;
         uint16_t hclock = 0;
         uint16_t x = 0;
         RasterEventType type = RasterEventType::Display;
@@ -517,7 +516,8 @@ private:
     std::unique_ptr<Line[]> lines_;
     int lineStart_ = 0;
     int lineCount_ = 0;
-    std::vector<RasterEvent> rasterEvents_;
+    // Keep each line's events in write order and reuse storage across frames.
+    std::array<std::vector<RasterEvent>, MaxVisibleLines> rasterEvents_;
 
     // Mosaic progression normally happens from SetCurrentLine at H=0.  Direct
     // renderer tests may call ScanlineBegin instead, so guard against a second

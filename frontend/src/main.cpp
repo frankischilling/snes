@@ -12,6 +12,7 @@
 #include "SdlAudioOutput.hpp"
 #include "SdlInputProvider.hpp"
 #include "SaveRamFile.hpp"
+#include "FramePacer.hpp"
 
 #include "snes/core/Emulator.hpp"
 #include "snes/core/Logging.hpp"
@@ -24,6 +25,7 @@
 #include <string>
 #include <string_view>
 #include <array>
+#include <algorithm>
 #include <stdexcept>
 #include <vector>
 
@@ -94,8 +96,9 @@ int main(int argc, char* argv[]) {
 
     try {
         snes::frontend::SdlVideoOutput::Config videoConfig;
-        // Audio consumption sets emulation speed, independent of monitor refresh.
+        // Console clocks pace presentation, with gradual audio queue feedback.
         videoConfig.vsync = false;
+        videoConfig.deferPresentation = true;
         video = std::make_unique<snes::frontend::SdlVideoOutput>(videoConfig);
         audio = std::make_unique<snes::frontend::SdlAudioOutput>();
         input = std::make_unique<snes::frontend::SdlInputProvider>();
@@ -190,6 +193,9 @@ int main(int argc, char* argv[]) {
     try {
         audio->Resume();
         bool running = true;
+        bool picturePending = false;
+        uint64_t presentationTime = 0;
+        snes::frontend::FramePacer pacer;
         while (running) {
             // Event pump (also updates keyboard state for SdlInputProvider)
             SDL_Event event;
@@ -213,9 +219,22 @@ int main(int argc, char* argv[]) {
 
             if (!running) break;
 
-            // Wait for the device to consume input instead of dropping samples.
-            // Keep polling events during the wait so the window stays responsive.
-            if (!audio->NeedsSamples()) {
+            if (picturePending) {
+                const auto now = SDL_GetTicksNS();
+                if (now < presentationTime) {
+                    SDL_DelayPrecise(std::min<uint64_t>(presentationTime - now, 2'000'000));
+                    continue;
+                }
+                video->PresentPending();
+                pacer.Presented(SDL_GetTicksNS());
+                picturePending = false;
+                continue;
+            }
+
+            // Preserve all samples after unusually long transfers or a device
+            // stall. Normal playback has enough headroom for batched callbacks.
+            if (audio->IsPlaying() && audio->QueuedMilliseconds() >= 80.0) {
+                pacer.Reset();
                 SDL_Delay(1);
                 continue;
             }
@@ -227,7 +246,17 @@ int main(int argc, char* argv[]) {
                     aim[gun] = input->PollLightGun(1, gun, emulator->CurrentFrame());
                 video->SetGunAim(aim, count);
             }
-            emulator->StepFrame();
+            const auto before = emulator->CurrentMasterCycles();
+            const auto result = emulator->StepFrame();
+            if (audio->IsPlaying()) {
+                presentationTime = pacer.Schedule(SDL_GetTicksNS(), result.masterCycles - before,
+                    emulator->GetTiming().MasterClockHz(), audio->QueuedMilliseconds());
+                picturePending = true;
+            } else {
+                // Prime/refill audio promptly; the last prepared picture is
+                // presented when playback starts instead of flashing each one.
+                pacer.Reset();
+            }
             if (emulator->CurrentFrame() % 300 == 0) flushSaves();
         }
         audio->Pause();

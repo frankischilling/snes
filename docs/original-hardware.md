@@ -54,6 +54,10 @@ Visible-line writes to brightness/forced blank, BG scroll, mosaic, window select
 
 Mode 7 BG1 supports direct color with and without mosaic. EXTBG BG2 continues to use CGRAM, and BG1's mosaic enable controls vertical sampling for both Mode 7 layers. Hires and pseudo-hires output pair each sub pixel with the preceding main pixel's color-math and window decisions, including at a raster-state boundary. An empty sub screen displays its palette backdrop, while main color math uses the fixed-color register without halving.
 
+Modes 5 and 6 measure horizontal mosaic blocks in logical dots. Mosaic selects the even source sample for both screens, including size one. Mode 6 tile offsets use the same logical coordinate scale for the first-column exemption, fine scrolling, BG3 lookup and replacement scroll. Regression fixtures cover flips, windows, tile heights and independent horizontal/vertical offset enables.
+
+Raster events remain in write order within each scanline. Their storage is reused across frames, so rendering a line does not allocate a temporary event list or scan events belonging to every other line.
+
 Sprite overflow is evaluated during the current frame, even when OBJ is absent from the main and sub screens or the display is blanked. The 32-object and 34-tile flags remain sticky until the next frame, and `$213E` preserves PPU1 open-bus bit 4. Deferred drawing no longer changes the global overflow flags.
 
 ## BS-X host interface
@@ -79,7 +83,7 @@ The memory controller follows the documented [MCC register and mapping behavior]
 
 ## Validation scope
 
-All 34 configured CTest targets pass in Release and AddressSanitizer builds on Windows with Clang 21: 31 bundled tests and three optional DMA/IRQ, CPU, and SPC diagnostics. The Windows legacy test executable reserves an 8 MiB stack so sanitizer instrumentation can retain its large fixtures.
+All 36 configured CTest targets pass in Release and AddressSanitizer builds on Windows with Clang 21: 33 bundled tests and three optional DMA/IRQ, CPU, and SPC diagnostics. The Windows legacy test executable reserves an 8 MiB stack so sanitizer instrumentation can retain its large fixtures.
 
 Run the complete test set with:
 

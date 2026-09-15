@@ -166,6 +166,179 @@ void LoaderAndRam() {
           "Extended HiROM header location selects the upper ROM chip");
 }
 
+void InvalidMapperMetadata() {
+    for (uint8_t mode : {0x00, 0x10, 0x40, 0xd0}) {
+        auto bytes = Rom(0x20000, 0x21);
+        bytes[0xffd5] = mode;
+        bytes[0] = 0x42;
+        bytes[0x8000] = 0x78;
+        auto cart = Cartridge::FromRomImage(bytes, nullptr, nullptr, nullptr);
+        Check(cart && cart->Header().mapping == MappingType::HiRom && cart->Read(0x008000) == 0x78,
+              "Reserved mode bytes cannot override the physical reset header");
+        Check(cart->Header().speed == RomSpeed::Slow, "Unknown speed metadata defaults to slow ROM");
+    }
+}
+
+void ExtendedChipOrder() {
+    for (bool hi : {false, true}) {
+        for (size_t size : {0x500000u, 0x600000u, 0x700000u, 0x800000u}) {
+            auto bytes = Rom(size, hi ? 0x35 : 0x20);
+            if (!hi) {
+                std::copy_n(bytes.begin() + 0x7fc0, 64, bytes.begin() + 0x407fc0);
+                std::fill_n(bytes.begin() + 0x7fc0, 64, 0);
+            }
+            const size_t reset = hi ? 0x8000 : 0;
+            bytes[reset] = 0x11;
+            bytes[0x400000 + reset] = 0x78;
+            bytes.back() = 0x63;
+            auto canonical = Cartridge::FromRomImage(bytes, nullptr, nullptr, nullptr);
+            Check(canonical && canonical->Read(0x008000) == 0x78, "Extended fixture selects the boot ROM chip");
+
+            std::vector<uint8_t> swapped(bytes.begin() + 0x400000, bytes.end());
+            swapped.insert(swapped.end(), bytes.begin(), bytes.begin() + 0x400000);
+            for (bool copierHeader : {false, true}) {
+                auto image = swapped;
+                if (copierHeader) image.insert(image.begin(), 512, 0);
+                RomNormalizationInfo info;
+                auto cart = Cartridge::FromRomImage(image, &info, nullptr, nullptr);
+                Check(cart && cart->Header().mapping == (hi ? MappingType::ExHiRom : MappingType::ExLoRom),
+                      "Small-chip-first dumps retain the extended mapper");
+                Check(cart->Header().headerOffset == (hi ? 0x40ffc0u : 0x407fc0u),
+                      "Chip ordering places the reset header in the boot chip");
+                Check(cart->Read(0x008000) == 0x78 && cart->Read(0x808000) == 0x11,
+                      "Small-chip-first dumps route both CPU reset windows to their own chip");
+                Check(std::equal(bytes.begin(), bytes.end(), cart->RomData().begin()) &&
+                      cart->RomCrc32() == canonical->RomCrc32(), "Chip ordering preserves every ROM byte and canonical CRC");
+                Check(info.hadCopierHeader == copierHeader && !info.hadInterleave,
+                      "Chip ordering keeps copier and interleave metadata independent");
+            }
+        }
+    }
+}
+
+void InterleavedLoRom() {
+    for (size_t size : {0x10000u, 0x20000u, 0x100000u, 0x300000u}) {
+        auto bytes = Rom(size);
+        std::fill(bytes.begin() + 0x8000, bytes.end(), 0);
+        bytes[0] = 0x78;
+        bytes.back() = 0x63;
+        std::vector<uint8_t> interleaved(size);
+        const size_t pairs = size / 0x10000;
+        for (size_t pair = 0; pair < pairs; ++pair) {
+            std::copy_n(bytes.begin() + (pair * 2 + 1) * 0x8000, 0x8000,
+                        interleaved.begin() + pair * 0x8000);
+            std::copy_n(bytes.begin() + pair * 0x10000, 0x8000,
+                        interleaved.begin() + (pair + pairs) * 0x8000);
+        }
+        auto canonical = Cartridge::FromRomImage(bytes, nullptr, nullptr, nullptr);
+        RomNormalizationInfo info;
+        auto cart = Cartridge::FromRomImage(interleaved, &info, nullptr, nullptr);
+        Check(cart && info.hadInterleave && cart->Header().mapping == MappingType::LoRom,
+              "A displaced LoROM header is recovered from a type-1 interleaved dump");
+        Check(cart->Read(0x008000) == 0x78 &&
+              std::equal(bytes.begin(), bytes.end(), cart->RomData().begin()) &&
+              cart->RomCrc32() == canonical->RomCrc32(), "LoROM deinterleave preserves bank order and canonical CRC");
+    }
+}
+
+void EnhancementHeaderSelection() {
+    struct Board { uint8_t mode, type; EnhancementChip chip; MappingType mapping; };
+    for (auto board : {Board{0x23, 0x35, EnhancementChip::Sa1, MappingType::Sa1},
+                       Board{0x20, 0x15, EnhancementChip::SuperFx, MappingType::SuperFx},
+                       Board{0x32, 0x45, EnhancementChip::Sdd1, MappingType::Sdd1},
+                       Board{0x3a, 0xf5, EnhancementChip::Spc7110, MappingType::Spc7110},
+                       Board{0x3a, 0xf9, EnhancementChip::Spc7110Rtc, MappingType::Spc7110}}) {
+        auto bytes = Rom(0x600000, board.mode, board.type);
+        const size_t header = board.mode == 0x3a ? 0xffc0 : 0x7fc0;
+        if (header == 0xffc0) {
+            std::copy_n(bytes.begin() + 0x7fc0, 64, bytes.begin() + header);
+            std::fill_n(bytes.begin() + 0x7fc0, 64, 0);
+        }
+        bytes[header + 0x18] = 3;
+        // Graphics/data ROM may contain another plausible header. The board
+        // already identifies its own bank controller in the reset header.
+        const auto ordinary = Rom(0x10000);
+        for (size_t decoy : {0x407fc0u, 0x40ffc0u})
+            std::copy_n(ordinary.begin() + 0x7fc0, 64, bytes.begin() + decoy);
+        RomNormalizationInfo info;
+        auto cart = Cartridge::FromRomImage(bytes, &info, nullptr, nullptr);
+        Check(cart && cart->Header().chip == board.chip && cart->Header().mapping == board.mapping,
+              "Enhancement board selection ignores ordinary extended-header decoys");
+        Check(cart->Header().headerOffset == header && !info.hadInterleave &&
+              std::equal(bytes.begin(), bytes.end(), cart->RomData().begin()),
+              "Enhancement ROM data stays in place and the reset header supplies metadata");
+    }
+}
+
+std::vector<uint8_t> InterleaveBanks(std::span<const uint8_t> bytes) {
+    Check(bytes.size() % 0x10000 == 0, "Interleaved chip fixture contains complete bank pairs");
+    std::vector<uint8_t> output;
+    output.reserve(bytes.size());
+    for (size_t half : {1u, 0u}) {
+        for (size_t bank = half; bank < bytes.size() / 0x8000; bank += 2) {
+            const auto block = bytes.subspan(bank * 0x8000, 0x8000);
+            output.insert(output.end(), block.begin(), block.end());
+        }
+    }
+    return output;
+}
+
+void InterleavedExtendedHiRom() {
+    for (uint8_t mode : {0x25, 0x35}) {
+        for (size_t size : {0x500000u, 0x600000u, 0x700000u, 0x800000u}) {
+            auto bytes = Rom(size, mode);
+            for (size_t bank = 0; bank < size / 0x8000; ++bank) {
+                bytes[bank * 0x8000 + 0x1234] = uint8_t(bank);
+                bytes[bank * 0x8000 + 0x4321] = uint8_t(bank ^ 0xa5);
+            }
+            bytes[0x8000] = 0x11;
+            bytes[0x408000] = 0x78;
+            auto canonical = Cartridge::FromRomImage(bytes, nullptr, nullptr, nullptr);
+            Check(canonical && canonical->Header().mapping == MappingType::ExHiRom,
+                  "Extended HiROM fixture has a native boot header");
+            const auto dataChip = InterleaveBanks(std::span<const uint8_t>(bytes).first(0x400000));
+            const auto bootChip = InterleaveBanks(std::span<const uint8_t>(bytes).subspan(0x400000));
+            for (bool bootFirst : {false, true}) {
+                std::vector<uint8_t> image = bootFirst ? bootChip : dataChip;
+                const auto& second = bootFirst ? dataChip : bootChip;
+                image.insert(image.end(), second.begin(), second.end());
+                if (bootFirst) image.insert(image.begin(), 512, 0);
+                RomNormalizationInfo info;
+                auto cart = Cartridge::FromRomImage(image, &info, nullptr, nullptr);
+                Check(cart && info.hadInterleave && info.hadCopierHeader == bootFirst,
+                      "Chipwise ExHiROM interleave is detected in either chip order");
+                Check(cart->Header().mapping == MappingType::ExHiRom && cart->Header().headerOffset == 0x40ffc0 &&
+                      cart->Header().mapMode == mode, "Chipwise deinterleave restores the extended boot header");
+                Check(cart->Read(0x008000) == 0x78 && cart->Read(0x808000) == 0x11,
+                      "Chipwise deinterleave restores both CPU ROM windows");
+                Check(std::equal(bytes.begin(), bytes.end(), cart->RomData().begin()) &&
+                      cart->RomCrc32() == canonical->RomCrc32(), "Chipwise deinterleave preserves every bank and canonical CRC");
+            }
+        }
+    }
+}
+
+void NativeExtendedHiRomIsNotInterleaved() {
+    auto bytes = Rom(0x600000, 0x35);
+    bytes[0x408000] = 0x78;
+    bytes[0x1234] = 0x11;
+    bytes[0x201234] = 0x22;
+    // A valid native HiROM header wins over an equally plausible mode-$35
+    // header in a data bank, including dumps that put the boot chip first.
+    std::copy_n(bytes.begin() + 0x40ffc0, 64, bytes.begin() + 0x407fc0);
+    auto canonical = Cartridge::FromRomImage(bytes, nullptr, nullptr, nullptr);
+    for (bool bootFirst : {false, true}) {
+        auto image = bytes;
+        if (bootFirst) std::rotate(image.begin(), image.begin() + 0x400000, image.end());
+        RomNormalizationInfo info;
+        auto cart = Cartridge::FromRomImage(image, &info, nullptr, nullptr);
+        Check(cart && !info.hadInterleave && cart->Header().headerOffset == 0x40ffc0 &&
+              cart->Read(0x008000) == 0x78, "A valid native extended header prevents speculative deinterleave");
+        Check(std::equal(bytes.begin(), bytes.end(), cart->RomData().begin()) &&
+              cart->RomCrc32() == canonical->RomCrc32(), "Native extended ROM bytes and CRC remain canonical");
+    }
+}
+
 void BitmapProcessor() {
     auto emu = Load(Rom(0x100000, 0x20, 5));
     auto& bus = emu->GetBus();
@@ -475,6 +648,8 @@ int main() {
     try {
         DetectionAndReload(); LoaderAndRam(); BitmapProcessor(); ObjectController(); Sufami(); Clock(); Regions();
         CombinedSufami(); BroadcastBoards();
+        InvalidMapperMetadata(); ExtendedChipOrder(); InterleavedLoRom(); EnhancementHeaderSelection();
+        InterleavedExtendedHiRom(); NativeExtendedHiRomIsNotInterleaved();
         std::printf("%u cartridge device checks passed\n", checks);
         return 0;
     } catch (const std::exception& error) {

@@ -7,9 +7,11 @@
 #include "SdlVideoOutput.hpp"
 
 #include <cstdio>
+#include <charconv>
 #include <cstdlib>
 #include <cstring>
 #include <stdexcept>
+#include <string_view>
 
 namespace snes::frontend {
 
@@ -18,7 +20,14 @@ int ProbeFrameIndex() {
     static int probeFrame = -2;
     if (probeFrame == -2) {
         const char* v = std::getenv("SNES_PROBE_FRAME");
-        probeFrame = (v && *v) ? std::atoi(v) : 500;
+        probeFrame = -1;
+        if (v && *v) {
+            const std::string_view value(v);
+            int parsed = -1;
+            const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+            if (result.ec == std::errc{} && result.ptr == value.data() + value.size() && parsed >= 0)
+                probeFrame = parsed;
+        }
     }
     return probeFrame;
 }
@@ -28,7 +37,8 @@ int ProbeFrameIndex() {
 
 SdlVideoOutput::SdlVideoOutput() : SdlVideoOutput(Config{}) {}
 
-SdlVideoOutput::SdlVideoOutput(const Config& config) {
+SdlVideoOutput::SdlVideoOutput(const Config& config)
+    : deferredPresentation_(config.deferPresentation) {
     int windowW = config.baseW * config.scale;
     int windowH = config.baseH * config.scale;
 
@@ -73,17 +83,42 @@ void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
     int pitch = static_cast<int>(frame.width * sizeof(uint32_t));
     SDL_UpdateTexture(texture_, nullptr, frame.pixels.data(), pitch);
 
+    // Diagnostic captures are opt-in and count submitted emulated frames.
+    const int probeFrame = ProbeFrameIndex();
+    if (probeFrame >= 0 && submittedFrames_ == static_cast<uint64_t>(probeFrame)) {
+        SDL_Surface* surf = SDL_CreateSurface(
+            static_cast<int>(frame.width), static_cast<int>(frame.height),
+            SDL_PIXELFORMAT_ABGR8888);
+        if (surf) {
+            char filename[32];
+            std::snprintf(filename, sizeof(filename), "frame%d.bmp", probeFrame);
+            for (uint32_t y = 0; y < frame.height; ++y)
+                std::memcpy(static_cast<unsigned char*>(surf->pixels) + y * surf->pitch,
+                            frame.pixels.data() + y * frame.width, pitch);
+            SDL_SaveBMP(surf, filename);
+            SDL_DestroySurface(surf);
+        }
+    }
+    ++submittedFrames_;
+    pending_ = true;
+    if (!deferredPresentation_) PresentPending();
+}
+
+void SdlVideoOutput::PresentPending() {
+    if (!pending_ || !renderer_ || !texture_) return;
+    pending_ = false;
+
     // Fit the picture to the window, using integer scaling when it fits.
     int winW = 0, winH = 0;
     SDL_GetWindowSize(window_, &winW, &winH);
-    const auto viewport = MakeVideoViewport(winW, winH, frame.height);
+    const auto viewport = MakeVideoViewport(winW, winH, texH_);
     SDL_FRect dst{viewport.x, viewport.y, viewport.width, viewport.height};
 
     // One-shot: log presentation dimensions
     static bool logged = false;
     if (!logged) {
         fprintf(stderr, "[VIDEO] frame=%ux%u window=%dx%d dst=%.0fx%.0f+%.0f+%.0f\n",
-                frame.width, frame.height, winW, winH,
+                texW_, texH_, winW, winH,
                 dst.w, dst.h, dst.x, dst.y);
         logged = true;
     }
@@ -106,25 +141,6 @@ void SdlVideoOutput::Present(const snes::core::VideoFrame& frame) {
     }
     SDL_RenderPresent(renderer_);
 
-    // Save a probe frame as BMP for diagnostic comparison.
-    static int frameCounter = 0;
-    const int probeFrame = ProbeFrameIndex();
-    if (probeFrame >= 0 && frameCounter == probeFrame) {
-        SDL_Surface* surf = SDL_CreateSurface(
-            static_cast<int>(frame.width), static_cast<int>(frame.height),
-            SDL_PIXELFORMAT_ABGR8888);
-        if (surf) {
-            char filename[32];
-            std::snprintf(filename, sizeof(filename), "frame%d.bmp", probeFrame);
-            memcpy(surf->pixels, frame.pixels.data(),
-                   frame.width * frame.height * sizeof(uint32_t));
-            SDL_SaveBMP(surf, filename);
-            SDL_DestroySurface(surf);
-            fprintf(stderr, "[VIDEO] Saved %s (%ux%u)\n",
-                    filename, frame.width, frame.height);
-        }
-    }
-    frameCounter++;
 }
 
 // WindowID

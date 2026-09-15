@@ -15,7 +15,7 @@ The core includes:
 - A 24-bit bus with WRAM, open-bus behavior, PPU and APU ports, DMA and HDMA, controller polling, and master-clock timing.
 - A scanline renderer with tiled backgrounds, sprites, windows, color math, Mode 7, high-resolution and pseudo-hires output, overscan, and interlace.
 - An SPC700 and S-DSP audio path with BRR samples, envelopes, Gaussian interpolation, pitch modulation, noise, stereo mixing, and echo at 32 kHz.
-- Cartridge header detection, 512-byte copier-header removal, interleaved HiROM normalization, LoROM and HiROM mirrors, extended layouts, SRAM, and fast-ROM access timing.
+- Cartridge header detection, 512-byte copier-header removal, interleaved ROM normalization, LoROM and HiROM mirrors, extended layouts, SRAM, and fast-ROM access timing.
 - Cartridge hardware for DSP-1, DSP-2, DSP-3, DSP-4, OBC1, S-RTC, S-DD1, SPC7110, SA-1, Super FX, Cx4, ST010, BS-X, and Sufami Turbo. ST011 and ST018 currently cover their implemented board protocols, not their internal processors.
 - SDL input for gamepads, keyboard controls, mouse, multitap, Super Scope, Justifiers, and the MACS rifle.
 - `.srm`, `.rtc`, and flash sidecar saves, written through temporary files before replacement.
@@ -50,6 +50,8 @@ Use `--port1=` or `--port2=` to select `pad`, `mouse`, `multitap`, or `none`. Po
 
 When a cartridge has battery RAM, the frontend looks for an `.srm` file beside the ROM. S-RTC and SPC7110 RTC state use `.rtc` files. Broadcast flash packs use a `.flash` sidecar. Changed saves are flushed every 300 frames and again when the frontend exits normally.
 
+Pictures are prepared ahead of deadlines derived from the console clock. Audio queue feedback corrects device-clock drift gradually, and output buffers are reused across frames. [Audio playback](docs/audio.md) describes pacing, underrun recovery and the remaining display limits.
+
 ## Tests and tools
 
 The CTest suite uses generated ROMs, small 65816 and coprocessor programs, command streams, known output vectors, and deterministic clocks. It covers CPU and interrupt behavior, bus scheduling, PPU rendering, DMA and HDMA, audio phases, controllers, cartridge mapping, saves, and the supported cartridge devices. The committed tests do not need commercial game files.
@@ -63,7 +65,7 @@ The smoke tool's arguments and exit codes are documented in [Cartridge compatibi
 
 ## Current limits
 
-The emulator is not cycle exact. CPU and coprocessor synchronization can finish a whole instruction, the renderer samples graphics state once per scanline, and several cartridge chips are modeled at the command or board-protocol level. BS-X live reception and SoundLink audio are not implemented. Light-gun input uses scheduled beam positions rather than modeling the optical sensor.
+The emulator is not cycle exact. SA-1 advancement can finish a whole instruction, graphics memory uses per-line snapshots with timed spans for selected registers, and several cartridge chips are modeled at the command or board-protocol level. BS-X live reception and SoundLink audio are not implemented. Light-gun input uses scheduled beam positions rather than modeling the optical sensor.
 
 Passing a mapper test, recognizing a chip, or getting visible output from a smoke run is not the same as full game compatibility. The detailed notes call out the limits for each subsystem:
 

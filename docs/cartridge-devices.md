@@ -52,11 +52,15 @@ Country codes 2 through 12 and 18 select PAL. Other country codes select NTSC. P
 
 Small LoROM boards expose SRAM in both bank halves when the ROM-size header is at most 2 MiB and SRAM is at most 32 KiB. Larger layouts retain ROM in the upper half. An absent SRAM window returns open bus. Database overrides can explicitly disable SRAM with a size of zero. MEMSEL controls fast accesses independently of the speed advertised in the ROM header.
 
-The loader rejects erased headers and headers without a cartridge-space reset vector. It only deinterleaves images with an even number of 32 KiB blocks, and only when the best header supports that interpretation. A HiROM header at $40FFC0 selects ExHiROM.
+The loader rejects erased headers and headers without a cartridge-space reset vector. Reserved mode bytes cannot override the physical header layout. SA-1, Super FX, S-DD1 and SPC7110 retain their boot headers even when data in an extended ROM bank resembles another cartridge header.
+
+Type-1 interleaved LoROM and HiROM images are normalized when their displaced headers identify that layout. ExHiROM also accepts independently interleaved boot and data chips in either physical order. A native HiROM header of equal or better quality prevents speculative deinterleaving. Each transformed chip must contain complete pairs of 32 KiB blocks.
+
+For 5–8 MiB ExLoROM and ExHiROM images, the loader accepts either physical chip order and places the boot chip after the four-MiB data region. Reset windows, ROM mirrors and the cartridge CRC then use the same canonical bytes. A HiROM header at $40FFC0 selects ExHiROM. GD24 and type-2 forced dump formats do not yet have a format-selection interface; their bank permutations cannot be inferred safely from a plausible header alone.
 
 ## Validation and limits
 
-`snes_cartridge_device_tests` covers device detection, rejected loads, bank boundaries, save separation, DSP-2 command results, OBC1 attribute packing, clock persistence and calendar rollover, and PAL frame/audio timing. Tests use generated ROMs and an injected clock, so they need no game files.
+`snes_cartridge_device_tests` covers device detection, rejected loads, bank boundaries, save separation, DSP-2 command results, OBC1 attribute packing, clock persistence and calendar rollover, and PAL frame/audio timing. Loader regressions compare every normalized ROM byte and CRC, verify both reset windows, and preserve native images with competing headers. Tests use generated ROMs and an injected clock, so they need no game files.
 
 Local 1,800-frame checks produced visible output and non-silent audio for Super Mario World and the Contra prototype. The final Contra frame showed gameplay. These checks do not prove complete gameplay, correct sound, or compatibility with commercial games that use the new devices.
 
